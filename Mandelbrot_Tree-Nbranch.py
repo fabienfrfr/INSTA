@@ -12,10 +12,9 @@ import networkx as nx, pandas as pd
 import matplotlib.animation as animation
 
 ############################################### PARAMETER
-branch, height = 4, 6
-angle_ = (20,160)
-shift_lr = (.5,.35)
 L = 2.
+branch, height= 4, 5
+angle_, shift_lr = (50,130), (.5,1./3) #shift lr : golden ratio
 
 init = np.zeros(branch)
 theta = np.radians(np.linspace(angle_[0], angle_[1], branch))
@@ -65,27 +64,35 @@ nodeX, nodeY = df_tree[['xA','xB']].values, df_tree[['yA','yB']].values
 lvl =  df_tree['Depth'].values
 thickness = pd.Series(2*np.pi*((np.max(lvl) - lvl)/np.max(lvl)) + 1)
 
+list_t = np.repeat(np.arange(height+1)[::-1], 20)
 
+# figure declaration
 fig = plt.figure(figsize=(5,5), dpi=120) 
-fig.add_axes([0., 0., 1., 1.], frameon=False)
+ax = fig.add_subplot(111) #fig.add_axes([0., 0., 1., 1.], frameon=False)
+fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0, hspace=0)
 plt.xticks([]), plt.yticks([])
 plt.xlim([-L, L]); plt.ylim([0, L + 4/5 * L])
 
-# set figure background opacity (alpha) to 0
-fig.patch.set_alpha(1) # 0 for nothing
-# Création des noeud/arete à mettre à jour :
-fig.patch.set_facecolor("white")#None for alpha
+ax.spines['bottom'].set_color('None'); ax.spines['top'].set_color('None') 
+ax.spines['right'].set_color('None'); ax.spines['left'].set_color('None')
+
+# set figure background
+fig.patch.set_alpha(0.) # 0. for nothing, 1 for max
+fig.patch.set_facecolor("None"); ax.set_facecolor("None") #None for alpha
 
 indices = np.arange(0,len(nodeX))
 # Création des noeud/arete à mettre à jour :
-line = [plt.plot([],[], color='k')[0] for i in indices]
+line = [ax.plot([],[], color='k')[0] for i in indices]
 
 def animate(i):
-    list_lvl = lvl <= i
-    for i in indices[list_lvl] :
-        line[i].set_data(nodeX[i], nodeY[i])
-        line[i].set_linewidth(thickness[i])
+    list_lvl = lvl <= list_t[i]
+    for j in indices :
+        if list_lvl[j] == True :
+            line[j].set_data(nodeX[j], nodeY[j])
+            line[j].set_linewidth(thickness[j])
+        else :
+            line[j].set_data([],[])
     return line
 
-anim = animation.FuncAnimation(fig, animate, frames=int(max(lvl)))
-anim.save(filename='1_animation.mp4', writer='ffmpeg', fps=1, codec="png") #png for alpha
+anim = animation.FuncAnimation(fig, animate, frames=len(list_t))
+anim.save(filename='1_animation.mp4', writer='ffmpeg', fps=30, codec="png") #png for alpha
