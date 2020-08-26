@@ -14,4 +14,10 @@ Not optimised, don't hesitate to comment !
 ### Turing
 #### Reaction–diffusion system
 #### Automaton
-### 
+### Vicsek-Reynolds
+#### 
+### Mandelbrot
+#### Julia Set
+#### Tree
+### Fourier
+####
