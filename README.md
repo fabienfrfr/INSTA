@@ -14,11 +14,15 @@ Not optimised, don't hesitate to comment !
 ## TABLE
 ### Turing
 #### Reaction–diffusion system
+PDE resolution
 #### Automaton
+Bravais
 ### Vicsek-Reynolds
-#### 
+Emergence & Brownian
 ### Mandelbrot
 #### Julia Set
+Complex number
 #### Tree
+Networks
 ### Fourier
-####
+Trigonometry & Series
