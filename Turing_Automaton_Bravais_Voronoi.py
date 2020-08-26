@@ -10,6 +10,10 @@ import cv2
 from skimage import filters as ft
 from matplotlib import colors
 
+#Create Data Folder
+try : os.makedirs("DATA")
+except FileExistsError : pass
+
 ############################################### FONCTION & CLASS
 def hex_to_rgb(value):
     value = value.lstrip('#')
