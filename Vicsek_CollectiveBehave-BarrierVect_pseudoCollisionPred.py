@@ -74,7 +74,7 @@ for i in range(N_time-1) :
         cells_state[i+1,indexes, 0] = np.mod(cells_state[i,indexes,0] + v[0], DimX)
         cells_state[i+1,indexes, 1] = np.mod(cells_state[i,indexes,1] + v[1], DimY)
         cells_state[i+1,indexes, 2] = angle_new[1:]
-    # Vicsek-Reynolds (for no collision boids)
+    # Vicsek (for no collision boids)
     cell_field = np.concatenate((cells_state[i],false_cells))
     for n in np.delete(cell_range, indexes) :
         # euclidean distance (with CLP modulus)
