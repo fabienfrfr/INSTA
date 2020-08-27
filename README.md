@@ -8,15 +8,6 @@ Not optimised, don't hesitate to comment !
 
 ##
 
+Use with Gimp, Inkscape and Blender.
+
 ###### Attribution required : Fabien Furfaro
-
-
-## TABLE
-### Turing
-#### Reaction–diffusion system
-#### Automaton
-### Vicsek-Reynolds
-### Mandelbrot
-#### Julia Set
-#### Tree
-### Fourier
