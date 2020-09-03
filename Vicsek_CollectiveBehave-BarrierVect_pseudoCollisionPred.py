@@ -100,6 +100,7 @@ plt.xlim(0,DimX); plt.ylim(0,DimY)
 point = plt.scatter(cells_state[0,:,0], cells_state[0,:,1], color='k', marker = '.', alpha = 0.90, s=10)
 line_pred = ax.plot([],[], color='k')[0]
 #plt.contour(X,Y,F,[0]) #field limit
+#plt.streamplot(Y, X, F, Angle) #streamline
 
 ax.set_facecolor("white") #None
 fig.patch.set_alpha(0.)
