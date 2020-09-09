@@ -80,15 +80,17 @@ im = plt.imshow(V[5:-5,5:-5], interpolation='gaussian')#, cmap=cmap_)
 plt.xticks([]), plt.yticks([])
 
 ############################################### TIME LOOP RESOLUTION
-J, j = 3, 1
-i, n = 0, 2
-while j < 101 :
-    # Log scaling (10 per scale)
-    if i > 10**n : 
-        J = int(J*10)
-        n+=1
+# Log scalling
+l, T, N_scale = 2, 100, 10
+M = np.repeat(l**(np.arange(1,T/N_scale + 1)), N_scale) #multiplicity
+seq = [0] # init sequences progression
+for m in M : seq += [seq[-1] + m]
+seq = np.array(seq, np.int)
+
+n = 0
+for i in range(seq[-1]+1) :
     ### Laplacian
-    if i % J == 0 :
+    if i % seq[n] == 0 :
         #solver [S = A-¹ * Vb ; A-¹ = (1/det(A))*adj(A) such A*A-¹=In]:
         uu, vv = u.reshape(N**2), v.reshape(N**2)
         Lu_, Lv_ = spsolve(LAP2, uu/e_) - uu, spsolve(LAP2, vv/e_) - vv
@@ -106,12 +108,11 @@ while j < 101 :
     v += (Dv*Lv + uvv - (F+k)*v    )
     
     ### Save image
-    if i % J == 0:
-        im.set_data(V[5:-5,5:-5])
-        im.set_clim(vmin=V.min(), vmax=V.max())
+    if i % seq[n] == 0 :
+        im.set_data(U[5:-5,5:-5])
+        im.set_clim(vmin=U.min(), vmax=U.max())
         plt.draw()
         # To make movie
-        plt.savefig("DATA/%03d.png" % j ,dpi=dpi)
-        j += 1
+        plt.savefig("DATA/%03d.png" % n ,dpi=dpi)
+        n += 1
         print(i)
-    i+=1
