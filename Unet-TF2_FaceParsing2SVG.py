@@ -76,42 +76,47 @@ def Unet_model(nbr, Nb_mask, size):
     model=models.Model(inputs=entree, outputs=sortie)
     return model
 
-################## FACE PARSING DATASET IMPORT
-# Construction of Array Dataset (Helen face dataset, FASSEG, https://www.kaggle.com/)
-tab_img, tab_mask = [], []
-for file in os.listdir(dir_data + dir_img) :
-    #img
-    img = cv2.imread(dir_data + dir_img +file); imShape = img.shape[:-1]
-    tab_img.append(cv2.resize(img[:min(imShape),:min(imShape)], (width, height))/255)
-    img_mask_result = np.zeros(shape = (height, width, Nb_mask), dtype = np.float32)
-    #mask
-    lab = os.listdir(dir_data + dir_mask + file.split('.')[0])
-    for n in range(Nb_mask) :
-        mask = np.mean(cv2.imread(dir_data + dir_mask + file.split('.')[0] + os.path.sep + lab[n]), axis=2)
-        img_mask = cv2.resize(mask[:min(imShape),:min(imShape)], (width, height))
-        img_mask_result[:,:,n][img_mask > 128] = 1.
-    tab_mask.append(img_mask_result)
-tab_img, tab_mask = np.array(tab_img).astype(np.float32), np.array(tab_mask); print('Loading ok!')
-
-################## TRAINING DATASET
-# Shuffle & outlier dataset (not ordered data necessary)
-train_images, test_images, train_labels, test_labels = train_test_split(tab_img, tab_mask, test_size = .05)
-del tab_img, tab_mask, test_images, test_labels
-
-# Crop data (same dimension per cycle recommanded)
-n_sample = int(len(train_images)/l_batch)
-train_images, train_labels = train_images[:n_sample*l_batch], train_labels[:n_sample*l_batch]
-
-# Initialisation of U-net Architecture (convolution neural network : "symetric" U-form) :
-model= Unet_model(64, Nb_mask, (height, width, 3))
-
-# Learning algorithme (gradiant descent form = minimize error by derivative exploration and retropropagation)
-model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-# Training conv-network
-model.fit(train_images, train_labels, epochs=nbr_cycle, batch_size=l_batch)
-
-# Save entire Model
-model.save('Helen-Unet') 
+################################### MODEL CONSTRUCT
+try : 
+    model = models.load_model('Helen-Unet')
+except : 
+    ################## FACE PARSING DATASET IMPORT
+    # Construction of Array Dataset (Helen face dataset, FASSEG, https://www.kaggle.com/)
+    tab_img, tab_mask = [], []
+    for file in os.listdir(dir_data + dir_img) :
+        #img
+        img = cv2.imread(dir_data + dir_img +file); imShape = img.shape[:-1]
+        tab_img.append(cv2.resize(img[:min(imShape),:min(imShape)], (width, height))/255)
+        img_mask_result = np.zeros(shape = (height, width, Nb_mask), dtype = np.float32)
+        #mask
+        lab = os.listdir(dir_data + dir_mask + file.split('.')[0])
+        for n in range(Nb_mask) :
+            mask = np.mean(cv2.imread(dir_data + dir_mask + file.split('.')[0] + os.path.sep + lab[n]), axis=2)
+            img_mask = cv2.resize(mask[:min(imShape),:min(imShape)], (width, height))
+            img_mask_result[:,:,n][img_mask > 128] = 1.
+        tab_mask.append(img_mask_result)
+    tab_img, tab_mask = np.array(tab_img).astype(np.float32), np.array(tab_mask); print('Loading ok!')
+    
+    ################## TRAINING DATASET
+    # Shuffle & outlier dataset (not ordered data necessary)
+    train_images, test_images, train_labels, test_labels = train_test_split(tab_img, tab_mask, test_size = .05)
+    del tab_img, tab_mask, test_images, test_labels
+    
+    # Crop data (same dimension per cycle recommanded)
+    n_sample = int(len(train_images)/l_batch)
+    train_images, train_labels = train_images[:n_sample*l_batch], train_labels[:n_sample*l_batch]
+    
+    # Initialisation of U-net Architecture (convolution neural network : "symetric" U-form) :
+    model = Unet_model(64, Nb_mask, (height, width, 3))
+    
+    # Learning algorithme (gradiant descent form = minimize error by derivative exploration and retropropagation)
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    # Training conv-network
+    model.fit(train_images, train_labels, epochs=nbr_cycle, batch_size=l_batch)
+    
+    # Save entire Model
+    model.save('Helen-Unet')
+model.summary()
 
 ################## PREDICT MASK
 # Image for test
