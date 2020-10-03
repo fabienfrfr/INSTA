@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sat Sep 26 18:25:10 2020
+@author: fabien
+"""
+### objectif : trouver les coordonnées des bords d'un quadrilatere dans une image (5 actions : 4 bouger, 1 tirer)
+import numpy as np, pylab as plt, tensorflow as tf
+from tensorflow.keras import models, layers
+import cv2, skvideo.io
+
+#################################### PARAMETER
+D = 32 #img dimension, need to be divisible 8 times !
+N_edge, N_poly = 4, 1
+nbr_action = tf.constant(5)
+
+gamma = tf.constant(0.98)
+epoch = 16384
+
+# Exploration/Exploitation Politics
+epsilon = 1.
+epsilon_min = 0.05
+start_epsilon = 1
+end_epsilon = epoch//16
+lim_exemple = epsilon_min
+epsilon_decay_value = epsilon/(end_epsilon-start_epsilon)
+
+#################################### TRAINING FUNCTION
+# Network Architechture (input = img, output = action)
+def CNNmodel(L,H, nbr_cc=8):
+    # image
+    entree = layers.Input(shape=(L,H,3), dtype='float32')
+    # 4 couche de convolution
+    result = layers.Conv2D(nbr_cc, 3, activation='relu', padding='same', strides=2)((entree/128)-1)
+    result = layers.Conv2D(2*nbr_cc, 3, activation='relu', padding='same', strides=2)(result)
+    result = layers.BatchNormalization()(result)
+    result = layers.Conv2D(4*nbr_cc, 3, activation='relu', padding='same', strides=2)(result)
+    result = layers.Conv2D(8*nbr_cc, 3, activation='relu', padding='same', strides=2)(result)
+    result = layers.BatchNormalization()(result)
+    # 1 couche dense
+    result = layers.Flatten()(result)
+    result = layers.Dense(512, activation='relu')(result)
+    # action
+    sortie = layers.Dense(nbr_action)(result)
+    return models.Model(inputs=entree, outputs=sortie)
+
+# Bellman equation : Qt+1 = Q + a[r+g*max(Q') - Q] = Q + a[r + Q_best - Q] = Q + [Q_target - Q] = Q + Correction
+@tf.function
+def train_step(reward, action, observation, next_observation, done):
+    # Q' (=after action)
+    next_Q_values = model(next_observation)
+    # GPU Q_best 
+    best_next_actions = tf.math.argmax(next_Q_values, axis=1)
+    next_mask = tf.one_hot(best_next_actions, nbr_action)
+    next_best_Q_values = tf.reduce_sum(next_Q_values*next_mask, axis=1)
+    # Q_target
+    target_Q_values = reward+(1-done)*gamma*next_best_Q_values
+    target_Q_values = tf.reshape(target_Q_values, (-1, 1))
+    # Correction
+    mask=tf.one_hot(action, nbr_action)
+    with tf.GradientTape() as tape:
+        all_Q_values = model(observation)
+        Q_values = tf.reduce_sum(all_Q_values*mask, axis=1, keepdims=True)
+        loss = tf.reduce_mean(tf.math.square(target_Q_values - Q_values))
+    gradients = tape.gradient(loss, model.trainable_variables)
+    # Retropropagate gradiant descent
+    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    train_loss(loss)
+
+################################### MODEL CONSTRUCT  
+model = CNNmodel(D,D)
+optimizer = tf.keras.optimizers.Adam(learning_rate=1E-4)
+train_loss = tf.keras.metrics.Mean()
+
+#################################### CONTROL ENV CLASS
+class control_environment :
+    def __init__(self, ImSize):
+        # Euclidean info
+        self.Pos_xy, self.solution, self.hole_list = None, None, None
+        # Image array
+        self.D, self.InitImage, self.observation = ImSize, None, None
+        # Rule info
+        self.iteration, self.max_episode_steps, self.done, self.reward = None, None, None, None
+    def reset(self, N_polygon, N_vertex):
+        # initialisation
+        self.iteration, self.done, self.hole_list = 0, N_polygon*N_vertex, []
+        self.max_episode_steps, self.Pos_xy = 4*self.D*self.done, np.random.randint(1,self.D-1, (2))
+        # polygon coordinate
+        p = np.random.randint(3, self.D-3, (N_vertex,2))
+        s = np.arctan2((p-p.mean(axis=0))[:,0], (p-p.mean(axis=0))[:,1])
+        p = p[np.argsort(s),:]
+        # Image and Observation construction
+        img, c = 50*np.ones((self.D,self.D,3), np.uint8), tuple(np.random.randint(5, 250, (3,)))
+        cv2.drawContours(img, [p], -1, (int(c[0]), int(c[1]), int(c[2])), -1)
+        self.InitImage = np.swapaxes(img,0,1) + np.random.randint(-3,4, (self.D,self.D,3))
+        self.observation = self.InitImage.copy()
+        self.observation[tuple(self.Pos_xy)] = 255
+        # Save solution
+        self.solution = p
+        return self.observation, (self.Pos_xy, self.solution)
+    def step(self, action):
+        # Reward for mvt
+        if action != 4 : self.reward = 0
+        # PosXY update
+        if action == 0 : self.Pos_xy[0] = np.mod(self.Pos_xy[0]+1, self.D)
+        elif action == 1 : self.Pos_xy[1] = np.mod(self.Pos_xy[1]+1, self.D)
+        elif action == 2 : self.Pos_xy[0] = np.mod(self.Pos_xy[0]-1, self.D)
+        elif action == 3 : self.Pos_xy[1] = np.mod(self.Pos_xy[1]-1, self.D)
+        # Hole action
+        if action == 4 :
+            self.hole_list += [self.Pos_xy.copy()]
+            dst = np.linalg.norm(self.Pos_xy - self.solution, axis=1)
+            if dst.min() > np.sqrt(2) : self.reward = - 1
+            else :
+                if dst.min() == 0 : self.reward = 10
+                else : self.reward = 5
+                # delete vertex in solution
+                idx = int(np.where(dst == dst.min())[0][0])
+                self.solution = np.delete(self.solution, idx,0)
+                self.done -= 1
+        # Observation actualisation
+        self.observation = self.InitImage.copy()
+        if len(self.hole_list) > 0 :
+            for h in self.hole_list : self.observation[tuple(h)] = 0
+        if action != 4 : self.observation[tuple(self.Pos_xy)] = 255
+        else : self.observation[tuple(self.Pos_xy)] = 128
+        # Ending loop
+        self.iteration += 1
+        if self.iteration > self.max_episode_steps :
+            self.reward = - int(np.sqrt(2*D**2))
+            self.done = 0
+        # return info
+        return self.observation, self.reward, self.done, (self.Pos_xy, self.solution)
+
+#################################### SOLUTION MVT FOR EXEMPLE
+def calculate_sol(position, points):
+    pos, pts = position.copy(), points.copy()
+    d = np.linalg.norm(pos - pts, axis=1)
+    p_ = pts[np.where(d == d.min())[0]][0]
+    # action
+    if d.min() == 0:
+        action = 4
+    else :
+        var = pos - p_
+        if abs(var).min() != 0 :
+            idx = int(np.where(abs(var)==abs(var).min())[0][0])
+        else :
+            idx = int(np.where(abs(var)!=abs(var).min())[0][0])
+        sign = -np.sign(var[idx])
+        if (idx == 0) and (sign == 1) : action = 0
+        elif (idx == 1) and (sign == 1) : action = 1
+        elif (idx == 0) and (sign == -1) : action = 2
+        elif (idx == 1) and (sign == -1) : action = 3
+    return action
+
+################################### REINFORCEMENT LEARNING
+env = control_environment(D)
+best_score, tab_score = 0, []
+for e in range(epoch):
+    print("EPOCH:", e, "epsilon", epsilon, "exemple", lim_exemple)
+    # re-initialisation
+    tab_observations, tab_rewards, tab_actions = [], [], []
+    tab_next_observations, tab_done = [], []
+    # Create image with quadrilateral polygon
+    observations, solution = env.reset(N_poly, N_edge)
+    score = env.max_episode_steps
+    while True:
+        tab_observations.append(observations)
+        # Exemple/Exploration/Exploitation dilemme
+        alea = np.random.random()
+        if epsilon == 1. :
+            action = calculate_sol(solution[0], solution[1])
+        elif alea > lim_exemple :
+            action = calculate_sol(solution[0], solution[1])
+        elif alea > epsilon:
+            valeurs_q = model(np.expand_dims(observations, axis=0))
+            action = int(tf.argmax(valeurs_q[0], axis=-1))
+        else:
+            if np.random.random() > (1. - N_poly/(2*D)) : action = 4
+            else : action = np.random.randint(0, nbr_action-1)
+        observations, reward, done, solution = env.step(action)
+        tab_actions.append(action)
+        tab_next_observations.append(observations)
+        tab_done.append(done)
+        tab_rewards.append(reward)
+        if done == 0 :
+            print("FIN, score:", score)
+            tab_score.append(score)
+            break
+        score-=1
+    # Prepare data for q-NN
+    tab_rewards=np.array(tab_rewards, dtype=np.float32)
+    tab_actions=np.array(tab_actions, dtype=np.int32)
+    tab_observations=np.array(tab_observations, dtype=np.float32)
+    tab_next_observations=np.array(tab_next_observations, dtype=np.float32)
+    tab_done=np.array(tab_done, dtype=np.float32)
+    # Model training with reinforcement
+    train_step(tab_rewards, tab_actions, tab_observations, tab_next_observations, tab_done)
+    train_loss.reset_states()
+    # Politics ajustment
+    epsilon -= epsilon_decay_value
+    epsilon = max(epsilon, epsilon_min)
+    lim_exemple += epsilon_decay_value
+    # Save best models
+    if np.mean(tab_score[-20:]) > best_score:
+        print("Sauvegarde du modele")
+        model.save("QmodelTrace")
+        best_score = np.mean(tab_score[-20:])
+    # Save the last observation (optional)
+    if e % 10 == 0 :
+        skvideo.io.vwrite("OUT/outputvideo_"+str(e)+".mp4", tab_next_observations)
+    if np.mean(tab_score[-50:]) == 0:
+        print("Not good parameter...")
+        break
+# Plot score
+plt.ylim(0,env.max_episode_steps)
+plt.plot(np.array(tab_score)); plt.show(); plt.close()
