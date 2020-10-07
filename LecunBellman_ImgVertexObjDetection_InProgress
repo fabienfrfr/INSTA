@@ -1,63 +1,164 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sat Sep 26 18:25:10 2020
+Created on Mon Oct  5 21:10:33 2020
 @author: fabien
 """
-### objectif : trouver les coordonnées des bords d'un quadrilatere dans une image (5 actions : 4 bouger, 1 tirer)
 import numpy as np, pylab as plt, tensorflow as tf
 from tensorflow.keras import models, layers
-import cv2, skvideo.io
+import cv2, skvideo.io, scipy as sp
 
-#################################### PARAMETER
-D = 32 #img dimension, need to be divisible 8 times !
-N_edge, N_poly = 4, 1
-nbr_action = tf.constant(5)
+################################### PARAMETER
+EPOCH = 10000
+# Net
+BATCH_SIZE, GAMMA = 128, tf.constant(0.9)
+NBR_IMG, NBR_ACTION = 1, 5
+NBR_TF_ACTION = tf.constant(NBR_ACTION)
+# Polygon
+NBR_VERTEX = 4
+# Image
+SIZE = 32
+# Dilemna
+EPSILON_START, EPSILON_END = 1., 0.1
+DECAY_RATE = 0.001
+COEFF, POLITICS = (2./3, 1./3), ['exemple','exploration','exploitation']
+# Game rule
+CONST_ERR, CYCLE_MAX = 4, SIZE**2
+BEST_SCORE = (np.pi)*SIZE
 
-gamma = tf.constant(0.98)
-epoch = 16384
-
-# Exploration/Exploitation Politics
-epsilon = 1.
-epsilon_min = 0.05
-start_epsilon = 1
-end_epsilon = epoch//16
-lim_exemple = epsilon_min
-epsilon_decay_value = epsilon/(end_epsilon-start_epsilon)
-
-#################################### TRAINING FUNCTION
-# Network Architechture (input = img, output = action)
-def CNNmodel(L,H, nbr_cc=8):
+################################### MODEL  
+# Network Architechture
+def Net():
     # image
-    entree = layers.Input(shape=(L,H,3), dtype='float32')
+    entree = layers.Input(shape=(SIZE,SIZE, 1), dtype='float32')
     # 4 couche de convolution
-    result = layers.Conv2D(nbr_cc, 3, activation='relu', padding='same', strides=2)((entree/128)-1)
-    result = layers.Conv2D(2*nbr_cc, 3, activation='relu', padding='same', strides=2)(result)
+    result = layers.Conv2D(8, 3, activation='relu', padding='same', strides=2)(entree/8)
+    result = layers.Conv2D(16, 3, activation='relu', padding='same', strides=2)(result)
     result = layers.BatchNormalization()(result)
-    result = layers.Conv2D(4*nbr_cc, 3, activation='relu', padding='same', strides=2)(result)
-    result = layers.Conv2D(8*nbr_cc, 3, activation='relu', padding='same', strides=2)(result)
+    result = layers.Conv2D(32, 3, activation='relu', padding='same', strides=2)(result)
+    result = layers.Conv2D(64, 3, activation='relu', padding='same', strides=2)(result)
     result = layers.BatchNormalization()(result)
     # 1 couche dense
     result = layers.Flatten()(result)
     result = layers.Dense(512, activation='relu')(result)
     # action
-    sortie = layers.Dense(nbr_action)(result)
+    sortie = layers.Dense(NBR_ACTION)(result)
     return models.Model(inputs=entree, outputs=sortie)
 
-# Bellman equation : Qt+1 = Q + a[r+g*max(Q') - Q] = Q + a[r + Q_best - Q] = Q + [Q_target - Q] = Q + Correction
+################################### ENVIRONMENT
+def Update_pos(position, action) :
+    if action == 4 :
+        new_position = position
+    else :
+        new_position = position
+        # PosXY update
+        idx = action % 2
+        if action > 1 :
+            new_position[idx] = np.mod(position[idx]-1, SIZE)
+        else :
+            new_position[idx] = np.mod(position[idx]+1, SIZE)
+    return new_position
+    
+def Update_img(image, empty, end_position) :
+    new_image = image.copy()
+    # Empty image actualisation
+    if len(empty) > 0 : 
+        for h in empty : new_image[tuple(h)] = 0
+    # Localisation in image
+    new_image[tuple(end_position)] = 7
+    return [new_image]
+
+class Env():
+    def __init__(self):
+        self.EUCLID = [None,None] # position, polygon
+        self.IMG = [None,None,[]] # initial, observation, hole_list
+        self.VAR_OUT = [None,False] # Reward, Done
+    def reset(self):
+        self.__init__()
+        # Initialize position
+        self.EUCLID[0] = np.random.randint(0,SIZE, (2))
+        # Polygone generator
+        p = np.random.randint(0, SIZE, (NBR_VERTEX,2))
+        s = np.arctan2((p-p.mean(axis=0))[:,0], (p-p.mean(axis=0))[:,1])
+        self.EUCLID[1] = p[np.argsort(s),:]
+        # Image initialisation (BG = 1)
+        img, c = np.ones((SIZE,SIZE), np.uint8), np.random.randint(2, 7)
+        self.IMG[0] = np.swapaxes(cv2.drawContours(img, [self.EUCLID[1]], -1, c, -1), 0,1)
+        # Update image
+        self.IMG[1] = Update_img(self.IMG[0], [], self.EUCLID[0])
+        return self.IMG[1]
+    def step(self, action):
+        # Games rules
+        if action != 4 :
+            self.VAR_OUT[0] = 0
+            # Update position
+            self.EUCLID[0] = Update_pos(self.EUCLID[0], action)
+        else :
+            self.IMG[2] += [self.EUCLID[0].copy()]
+            dst = np.linalg.norm(self.EUCLID[0] - self.EUCLID[1], axis=1)
+            if dst.min() > np.sqrt(2) : 
+                self.VAR_OUT[0] = -10
+            else :
+                self.VAR_OUT[0] = +10
+                # Update vertex solution
+                idx = int(np.where(dst == dst.min())[0][0])
+                self.EUCLID[1] = np.delete(self.EUCLID[1], idx,0)
+        # Update image
+        self.IMG[1] = Update_img(self.IMG[0], self.IMG[2], self.EUCLID[0])
+        # Condition stop
+        if len(self.IMG[2]) > NBR_VERTEX*CONST_ERR :
+            self.VAR_OUT[0] = -50
+            self.VAR_OUT[1] = True
+        elif len(self.EUCLID[1]) == 0 :
+            self.VAR_OUT[0] = +50
+            self.VAR_OUT[1] = True
+        return self.IMG[1], self.VAR_OUT[0], self.VAR_OUT[1]
+        
+################################### LEARNING
+def Sol(dilemna, observation):
+    if dilemna == 'exemple' :
+        # Euclidean distance between position and polygon vertex
+        d = np.linalg.norm(env.EUCLID[0] - env.EUCLID[1], axis=1)
+        if d.min() == 0 : 
+            next_action = 4
+        else :
+            # Calculate variation following (x,y) axis
+            VAR = env.EUCLID[0] - env.EUCLID[1][np.where(d == d.min())[0]][0]
+            # Choosing axis mvt
+            if abs(VAR).min() != 0 :
+                idx = int(np.where(abs(VAR)==abs(VAR).min())[0][0])
+            else :
+                idx = int(np.where(abs(VAR)!=abs(VAR).min())[0][0])
+            # Direction in axis
+            sign = -np.sign(VAR[idx])
+            if (idx == 0) and (sign == 1) : next_action = 0
+            elif (idx == 1) and (sign == 1) : next_action = 1
+            elif (idx == 0) and (sign == -1) : next_action = 2
+            elif (idx == 1) and (sign == -1) : next_action = 3
+    elif dilemna == 'exploration' :
+        # Non linear randomized number
+        next_action = np.random.choice(5, 1, p=4*[0.24]+[0.04])[0]
+    else :
+        # Passing image in Network
+        output = model(np.expand_dims(observation, axis=0))
+        # Max values classification
+        next_action = int(tf.argmax(output[0], axis=-1))
+    return next_action
+
+# Bellman equation (only tf format recommended)
 @tf.function
-def train_step(reward, action, observation, next_observation, done):
+def train(observation, action, next_observation, reward, done):
     # Q' (=after action)
     next_Q_values = model(next_observation)
     # GPU Q_best 
     best_next_actions = tf.math.argmax(next_Q_values, axis=1)
-    next_mask = tf.one_hot(best_next_actions, nbr_action)
+    next_mask = tf.one_hot(best_next_actions, NBR_TF_ACTION)
     next_best_Q_values = tf.reduce_sum(next_Q_values*next_mask, axis=1)
     # Q_target
-    target_Q_values = reward+(1-done)*gamma*next_best_Q_values
+    target_Q_values = reward+(1-done)*GAMMA*next_best_Q_values
     target_Q_values = tf.reshape(target_Q_values, (-1, 1))
     # Correction
-    mask=tf.one_hot(action, nbr_action)
+    mask = tf.one_hot(action, NBR_TF_ACTION)
     with tf.GradientTape() as tape:
         all_Q_values = model(observation)
         Q_values = tf.reduce_sum(all_Q_values*mask, axis=1, keepdims=True)
@@ -65,153 +166,95 @@ def train_step(reward, action, observation, next_observation, done):
     gradients = tape.gradient(loss, model.trainable_variables)
     # Retropropagate gradiant descent
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    train_loss(loss)
+    criterion(loss)
+    criterion.reset_states()
 
-################################### MODEL CONSTRUCT  
-model = CNNmodel(D,D)
-optimizer = tf.keras.optimizers.Adam(learning_rate=1E-4)
-train_loss = tf.keras.metrics.Mean()
+################################### ALGORITHMIC'S PART
+def Fit(model):
+    global env, M
+    # Initialize politics
+    epsilon = EPSILON_START
+    # Initialize control-environment
+    env = Env()
+    # Train loop
+    for e in np.arange(EPOCH):
+        # Sample initialisation (memory : 'old_state', 'action', 'new_state', 'reward', 'terminal')
+        M = [[],[],[],[],[]]
+        # Reset environment
+        observation = env.reset()
+        # Action loop
+        cycle_step = 0
+        while cycle_step < CYCLE_MAX :
+            M[0].append(observation)
+            # Exemple/Exploration/Exploitation Dilemme
+            dilemna = np.random.choice(POLITICS, 1, p=[COEFF[0]*epsilon, COEFF[1]*epsilon, 1-epsilon])[0]
+            # Calculate solution
+            action = Sol(dilemna, observation[0])
+            # Update sample
+            observation, reward, done = env.step(action)
+            # Update sample
+            M[1].append(action), M[2].append(observation), M[3].append(reward), M[4].append(done)
+            # Ending loop :
+            if done : break
+            else : 
+                cycle_step += 1
+        # Display result
+        print("EPOCH:", e, "Epsilon", epsilon, "Cycle", cycle_step)
+        # Prepare sample batch 
+        old_state_ = tf.convert_to_tensor(np.array(M[0]).squeeze(), dtype=tf.float32)
+        action_ = tf.convert_to_tensor(np.array(M[1]), dtype=tf.int32)
+        new_state_ = tf.convert_to_tensor(np.array(M[2]).squeeze(), dtype=tf.float32)
+        reward_ = tf.convert_to_tensor(np.array(M[3]), dtype=tf.float32)
+        terminal_ = tf.convert_to_tensor(np.array(M[4]), dtype=tf.float32)
+        # Reinforcement training
+        train(old_state_, action_, new_state_, reward_, terminal_)
+        # Save the last observation (optional)
+        if e % 10 == 0 :
+            video = (255*np.array(M[2], dtype=np.float32).squeeze()/8).astype(np.int)
+            skvideo.io.vwrite("OUT/outputvideo_"+str(e)+".mp4", video)
+        # Update politics
+        if epsilon > EPSILON_END : epsilon -= DECAY_RATE
+        # Ending
+        if (epsilon < EPSILON_END) and (cycle_step < BEST_SCORE) : break
+    # Update model
+    model.save('QmodelTrace')
 
-#################################### CONTROL ENV CLASS
-class control_environment :
-    def __init__(self, ImSize):
-        # Euclidean info
-        self.Pos_xy, self.solution, self.hole_list = None, None, None
-        # Image array
-        self.D, self.InitImage, self.observation = ImSize, None, None
-        # Rule info
-        self.iteration, self.max_episode_steps, self.done, self.reward = None, None, None, None
-    def reset(self, N_polygon, N_vertex):
-        # initialisation
-        self.iteration, self.done, self.hole_list = 0, N_polygon*N_vertex, []
-        self.max_episode_steps, self.Pos_xy = 4*self.D*self.done, np.random.randint(1,self.D-1, (2))
-        # polygon coordinate
-        p = np.random.randint(3, self.D-3, (N_vertex,2))
-        s = np.arctan2((p-p.mean(axis=0))[:,0], (p-p.mean(axis=0))[:,1])
-        p = p[np.argsort(s),:]
-        # Image and Observation construction
-        img, c = 50*np.ones((self.D,self.D,3), np.uint8), tuple(np.random.randint(5, 250, (3,)))
-        cv2.drawContours(img, [p], -1, (int(c[0]), int(c[1]), int(c[2])), -1)
-        self.InitImage = np.swapaxes(img,0,1) + np.random.randint(-3,4, (self.D,self.D,3))
-        self.observation = self.InitImage.copy()
-        self.observation[tuple(self.Pos_xy)] = 255
-        # Save solution
-        self.solution = p
-        return self.observation, (self.Pos_xy, self.solution)
-    def step(self, action):
-        # Reward for mvt
-        if action != 4 : self.reward = 0
-        # PosXY update
-        if action == 0 : self.Pos_xy[0] = np.mod(self.Pos_xy[0]+1, self.D)
-        elif action == 1 : self.Pos_xy[1] = np.mod(self.Pos_xy[1]+1, self.D)
-        elif action == 2 : self.Pos_xy[0] = np.mod(self.Pos_xy[0]-1, self.D)
-        elif action == 3 : self.Pos_xy[1] = np.mod(self.Pos_xy[1]-1, self.D)
-        # Hole action
-        if action == 4 :
-            self.hole_list += [self.Pos_xy.copy()]
-            dst = np.linalg.norm(self.Pos_xy - self.solution, axis=1)
-            if dst.min() > np.sqrt(2) : self.reward = - 1
-            else :
-                if dst.min() == 0 : self.reward = 10
-                else : self.reward = 5
-                # delete vertex in solution
-                idx = int(np.where(dst == dst.min())[0][0])
-                self.solution = np.delete(self.solution, idx,0)
-                self.done -= 1
-        # Observation actualisation
-        self.observation = self.InitImage.copy()
-        if len(self.hole_list) > 0 :
-            for h in self.hole_list : self.observation[tuple(h)] = 0
-        if action != 4 : self.observation[tuple(self.Pos_xy)] = 255
-        else : self.observation[tuple(self.Pos_xy)] = 128
-        # Ending loop
-        self.iteration += 1
-        if self.iteration > self.max_episode_steps :
-            self.reward = - int(np.sqrt(2*D**2))
-            self.done = 0
-        # return info
-        return self.observation, self.reward, self.done, (self.Pos_xy, self.solution)
+def Predict(model):
+    # Importing a image
+    img_rgb = cv2.imread(DIR)
+    # Normalise image
+    img_ = img.mean()
+    # Normalise&Contouring image by 6 values
+    img_ = [1,6] # 0 and 7 for action/empty
+    # Adding position
+    img[randomTuple] = 0
+    # Action loop
+    while True :
+        action = Sol('exploitation')
+        # Update position
+        position = Update_pos(posList, action)
+        # Update image
+        img, empty = Update_img(img_,empty,position)
+    # List of polygons
+    return posList
 
-#################################### SOLUTION MVT FOR EXEMPLE
-def calculate_sol(position, points):
-    pos, pts = position.copy(), points.copy()
-    d = np.linalg.norm(pos - pts, axis=1)
-    p_ = pts[np.where(d == d.min())[0]][0]
-    # action
-    if d.min() == 0:
-        action = 4
-    else :
-        var = pos - p_
-        if abs(var).min() != 0 :
-            idx = int(np.where(abs(var)==abs(var).min())[0][0])
-        else :
-            idx = int(np.where(abs(var)!=abs(var).min())[0][0])
-        sign = -np.sign(var[idx])
-        if (idx == 0) and (sign == 1) : action = 0
-        elif (idx == 1) and (sign == 1) : action = 1
-        elif (idx == 0) and (sign == -1) : action = 2
-        elif (idx == 1) and (sign == -1) : action = 3
-    return action
+################################### MAIN
+def main():
+    global model, optimizer, criterion
+    # Initialize neural network parameters and optimizer
+    model = Net()
+    optimizer = tf.keras.optimizers.Adam(learning_rate=1E-4)
+    criterion = tf.keras.metrics.Mean()
+    # Adjust model with polygon in image
+    try : 
+        model = models.load_model('QmodelTrace')
+    except : Fit(model)
+    # Predict polygons in image
+    polygons = Predict(model)
+    # Construct vectorial imag
+    plt.fill(posList, color = img_rgb[:].mean())
+    # Save in SVG format
+    plt.savefig(NAME + '.svg')
 
-################################### REINFORCEMENT LEARNING
-env = control_environment(D)
-best_score, tab_score = 0, []
-for e in range(epoch):
-    print("EPOCH:", e, "epsilon", epsilon, "exemple", lim_exemple)
-    # re-initialisation
-    tab_observations, tab_rewards, tab_actions = [], [], []
-    tab_next_observations, tab_done = [], []
-    # Create image with quadrilateral polygon
-    observations, solution = env.reset(N_poly, N_edge)
-    score = env.max_episode_steps
-    while True:
-        tab_observations.append(observations)
-        # Exemple/Exploration/Exploitation dilemme
-        alea = np.random.random()
-        if epsilon == 1. :
-            action = calculate_sol(solution[0], solution[1])
-        elif alea > lim_exemple :
-            action = calculate_sol(solution[0], solution[1])
-        elif alea > epsilon:
-            valeurs_q = model(np.expand_dims(observations, axis=0))
-            action = int(tf.argmax(valeurs_q[0], axis=-1))
-        else:
-            if np.random.random() > (1. - N_poly/(2*D)) : action = 4
-            else : action = np.random.randint(0, nbr_action-1)
-        observations, reward, done, solution = env.step(action)
-        tab_actions.append(action)
-        tab_next_observations.append(observations)
-        tab_done.append(done)
-        tab_rewards.append(reward)
-        if done == 0 :
-            print("FIN, score:", score)
-            tab_score.append(score)
-            break
-        score-=1
-    # Prepare data for q-NN
-    tab_rewards=np.array(tab_rewards, dtype=np.float32)
-    tab_actions=np.array(tab_actions, dtype=np.int32)
-    tab_observations=np.array(tab_observations, dtype=np.float32)
-    tab_next_observations=np.array(tab_next_observations, dtype=np.float32)
-    tab_done=np.array(tab_done, dtype=np.float32)
-    # Model training with reinforcement
-    train_step(tab_rewards, tab_actions, tab_observations, tab_next_observations, tab_done)
-    train_loss.reset_states()
-    # Politics ajustment
-    epsilon -= epsilon_decay_value
-    epsilon = max(epsilon, epsilon_min)
-    lim_exemple += epsilon_decay_value
-    # Save best models
-    if np.mean(tab_score[-20:]) > best_score:
-        print("Sauvegarde du modele")
-        model.save("QmodelTrace")
-        best_score = np.mean(tab_score[-20:])
-    # Save the last observation (optional)
-    if e % 10 == 0 :
-        skvideo.io.vwrite("OUT/outputvideo_"+str(e)+".mp4", tab_next_observations)
-    if np.mean(tab_score[-50:]) == 0:
-        print("Not good parameter...")
-        break
-# Plot score
-plt.ylim(0,env.max_episode_steps)
-plt.plot(np.array(tab_score)); plt.show(); plt.close()
+if __name__ == "__main__":
+	main()
