@@ -294,7 +294,7 @@ def main():
     try : model = models.load_model('QmodelTrace')
     except : Fit(model)
     """
-    Fit(model)
+    Fit()
     # Predict polygons in image
     polygons = Predict(model)
     # Construct vectorial imag
