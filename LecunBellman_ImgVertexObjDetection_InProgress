@@ -11,32 +11,31 @@ import cv2, skvideo.io, scipy as sp
 ################################### PARAMETER
 EPOCH = 10000
 # Net
-BATCH_SIZE, GAMMA = 128, tf.constant(0.9)
-NBR_IMG, NBR_ACTION = 1, 5
+NB_SEQUENCE, GAMMA = 2, tf.constant(0.9)
+NBR_ACTION = 5 # + une action lorsque confirmation (80% polygon min)
 NBR_TF_ACTION = tf.constant(NBR_ACTION)
+UPDATE_WEIGHT = 50
 # Polygon
 NBR_VERTEX = 4
 # Image
 SIZE = 32
 # Dilemna
 EPSILON_START, EPSILON_END = 1., 0.1
-DECAY_RATE = 0.001
+DECAY_RATE = 0.0002
 COEFF, POLITICS = (2./3, 1./3), ['exemple','exploration','exploitation']
 # Game rule
-CONST_ERR, CYCLE_MAX = 4, SIZE**2
+CONST_ERR, CYCLE_MAX = 1.5, 2*SIZE**2
 BEST_SCORE = (np.pi)*SIZE
+AGGRESIVITY = 2 # max = 1, min = 4
 
 ################################### MODEL  
 # Network Architechture
 def Net():
     # image
-    entree = layers.Input(shape=(SIZE,SIZE, 1), dtype='float32')
-    # 4 couche de convolution
+    entree = layers.Input(shape=(SIZE,SIZE, NB_SEQUENCE), dtype='float32')
+    # 2 couches de convolution
     result = layers.Conv2D(8, 3, activation='relu', padding='same', strides=2)(entree/8)
     result = layers.Conv2D(16, 3, activation='relu', padding='same', strides=2)(result)
-    result = layers.BatchNormalization()(result)
-    result = layers.Conv2D(32, 3, activation='relu', padding='same', strides=2)(result)
-    result = layers.Conv2D(64, 3, activation='relu', padding='same', strides=2)(result)
     result = layers.BatchNormalization()(result)
     # 1 couche dense
     result = layers.Flatten()(result)
@@ -70,7 +69,8 @@ def Update_img(image, empty, end_position) :
 
 class Env():
     def __init__(self):
-        self.EUCLID = [None,None] # position, polygon
+        self.i = 0
+        self.EUCLID = [None,None,None] # position, polygon, size_polygon
         self.IMG = [None,None,[]] # initial, observation, hole_list
         self.VAR_OUT = [None,False] # Reward, Done
     def reset(self):
@@ -78,35 +78,44 @@ class Env():
         # Initialize position
         self.EUCLID[0] = np.random.randint(0,SIZE, (2))
         # Polygone generator
-        p = np.random.randint(0, SIZE, (NBR_VERTEX,2))
+        p = np.random.randint(1, SIZE-1, (NBR_VERTEX,2))
         s = np.arctan2((p-p.mean(axis=0))[:,0], (p-p.mean(axis=0))[:,1])
-        self.EUCLID[1] = p[np.argsort(s),:]
+        p = p[np.argsort(s),:]
         # Image initialisation (BG = 1)
         img, c = np.ones((SIZE,SIZE), np.uint8), np.random.randint(2, 7)
-        self.IMG[0] = np.swapaxes(cv2.drawContours(img, [self.EUCLID[1]], -1, c, -1), 0,1)
+        self.IMG[0] = np.swapaxes(cv2.drawContours(img, [p], -1, c, -1), 0,1)
+        # Find polygons contour
+        kernel = kernel = np.array([[0,1,0],[1,-4,1],[0,1,0]],np.float32)
+        img_border = cv2.filter2D(self.IMG[0], -1, kernel)
+        x,y = np.where(img_border != 0)
+        self.EUCLID[1] = np.concatenate((x[:,None], y[:,None]), axis = 1)
+        self.EUCLID[2] = len(x)
         # Update image
         self.IMG[1] = Update_img(self.IMG[0], [], self.EUCLID[0])
         return self.IMG[1]
     def step(self, action):
         # Games rules
         if action != 4 :
-            self.VAR_OUT[0] = 0
+            if self.i % AGGRESIVITY != 0 : self.VAR_OUT[0] = 0
+            else : self.VAR_OUT[0] = -1
             # Update position
             self.EUCLID[0] = Update_pos(self.EUCLID[0], action)
+            self.i += 1
         else :
             self.IMG[2] += [self.EUCLID[0].copy()]
             dst = np.linalg.norm(self.EUCLID[0] - self.EUCLID[1], axis=1)
-            if dst.min() > np.sqrt(2) : 
+            if dst.min() > 0 : 
                 self.VAR_OUT[0] = -10
             else :
                 self.VAR_OUT[0] = +10
                 # Update vertex solution
                 idx = int(np.where(dst == dst.min())[0][0])
                 self.EUCLID[1] = np.delete(self.EUCLID[1], idx,0)
+            self.i = 0
         # Update image
         self.IMG[1] = Update_img(self.IMG[0], self.IMG[2], self.EUCLID[0])
         # Condition stop
-        if len(self.IMG[2]) > NBR_VERTEX*CONST_ERR :
+        if len(self.IMG[2]) > CONST_ERR*self.EUCLID[2] :
             self.VAR_OUT[0] = -50
             self.VAR_OUT[1] = True
         elif len(self.EUCLID[1]) == 0 :
@@ -115,7 +124,19 @@ class Env():
         return self.IMG[1], self.VAR_OUT[0], self.VAR_OUT[1]
         
 ################################### LEARNING
-def Sol(dilemna, observation):
+def Simulation(observation, epsilon):
+    M[0].append(observation)
+    # Exemple/Exploration/Exploitation Dilemme
+    dilemna = np.random.choice(POLITICS, 1, p=[COEFF[0]*epsilon, COEFF[1]*epsilon, 1-epsilon])[0]
+    # Calculate solution
+    action = Sol(dilemna, M[0])
+    # Update sample
+    observation, reward, done = env.step(action)
+    # Update sample
+    M[1].append(action), M[2].append(observation), M[3].append(reward), M[4].append(done)
+    return observation, done
+
+def Sol(dilemna, obs_list):
     if dilemna == 'exemple' :
         # Euclidean distance between position and polygon vertex
         d = np.linalg.norm(env.EUCLID[0] - env.EUCLID[1], axis=1)
@@ -139,8 +160,10 @@ def Sol(dilemna, observation):
         # Non linear randomized number
         next_action = np.random.choice(5, 1, p=4*[0.24]+[0.04])[0]
     else :
+        # Sequencing image
+        tab_sequence = np.concatenate((obs_list[-2][0][:,:,None], obs_list[-1][0][:,:,None]), axis=-1)
         # Passing image in Network
-        output = model(np.expand_dims(observation, axis=0))
+        output = model_primaire(tf.convert_to_tensor(np.expand_dims(tab_sequence, axis=0)))
         # Max values classification
         next_action = int(tf.argmax(output[0], axis=-1))
     return next_action
@@ -149,7 +172,7 @@ def Sol(dilemna, observation):
 @tf.function
 def train(observation, action, next_observation, reward, done):
     # Q' (=after action)
-    next_Q_values = model(next_observation)
+    next_Q_values = model_cible(next_observation)
     # GPU Q_best 
     best_next_actions = tf.math.argmax(next_Q_values, axis=1)
     next_mask = tf.one_hot(best_next_actions, NBR_TF_ACTION)
@@ -160,14 +183,32 @@ def train(observation, action, next_observation, reward, done):
     # Correction
     mask = tf.one_hot(action, NBR_TF_ACTION)
     with tf.GradientTape() as tape:
-        all_Q_values = model(observation)
+        all_Q_values = model_primaire(observation)
         Q_values = tf.reduce_sum(all_Q_values*mask, axis=1, keepdims=True)
         loss = tf.reduce_mean(tf.math.square(target_Q_values - Q_values))
-    gradients = tape.gradient(loss, model.trainable_variables)
+    gradients = tape.gradient(loss, model_primaire.trainable_variables)
     # Retropropagate gradiant descent
-    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+    optimizer.apply_gradients(zip(gradients, model_primaire.trainable_variables))
     criterion(loss)
     criterion.reset_states()
+
+
+################################### DATA REARANGEMENT
+def Sequencing(memory) :
+    # List to Array
+    old_state_, action_ = np.array(memory[0]).squeeze(), np.array(memory[1])
+    new_state_, reward_ = np.array(memory[2]).squeeze(), np.array(memory[3])
+    terminal_ = np.array(memory[4])
+    # Concatenate 2 sequence (need to adapt for N)
+    old_state_ = np.concatenate((old_state_[:-1,:,:,None], old_state_[1:,:,:,None]), axis = 3)
+    new_state_ = np.concatenate((new_state_[:-1,:,:,None], new_state_[1:,:,:,None]), axis = 3)
+    # Adapt data for tf.function
+    old_state_ = tf.convert_to_tensor(old_state_, dtype=tf.float32)
+    action_ = tf.convert_to_tensor(action_[1:], dtype=tf.int32)
+    new_state_ = tf.convert_to_tensor(new_state_, dtype=tf.float32)
+    reward_ = tf.convert_to_tensor(reward_[1:], dtype=tf.float32)
+    terminal_ = tf.convert_to_tensor(terminal_[1:], dtype=tf.float32)
+    return old_state_, action_, new_state_, reward_, terminal_
 
 ################################### ALGORITHMIC'S PART
 def Fit(model):
@@ -177,35 +218,31 @@ def Fit(model):
     # Initialize control-environment
     env = Env()
     # Train loop
+    SCORE = []
     for e in np.arange(EPOCH):
         # Sample initialisation (memory : 'old_state', 'action', 'new_state', 'reward', 'terminal')
         M = [[],[],[],[],[]]
         # Reset environment
         observation = env.reset()
+        # BATCH SEQUENCE
+        observation = Simulation(observation, 1.)[0]
         # Action loop
         cycle_step = 0
         while cycle_step < CYCLE_MAX :
-            M[0].append(observation)
-            # Exemple/Exploration/Exploitation Dilemme
-            dilemna = np.random.choice(POLITICS, 1, p=[COEFF[0]*epsilon, COEFF[1]*epsilon, 1-epsilon])[0]
-            # Calculate solution
-            action = Sol(dilemna, observation[0])
-            # Update sample
-            observation, reward, done = env.step(action)
-            # Update sample
-            M[1].append(action), M[2].append(observation), M[3].append(reward), M[4].append(done)
+            # Simulate 
+            observation, done = Simulation(observation, epsilon)
             # Ending loop :
             if done : break
             else : 
                 cycle_step += 1
+        # Saving score
+        SCORE.append(cycle_step)
+        # Negative reward if no solution
+        if cycle_step == CYCLE_MAX : M[4][-1] = -100
         # Display result
         print("EPOCH:", e, "Epsilon", epsilon, "Cycle", cycle_step)
-        # Prepare sample batch 
-        old_state_ = tf.convert_to_tensor(np.array(M[0]).squeeze(), dtype=tf.float32)
-        action_ = tf.convert_to_tensor(np.array(M[1]), dtype=tf.int32)
-        new_state_ = tf.convert_to_tensor(np.array(M[2]).squeeze(), dtype=tf.float32)
-        reward_ = tf.convert_to_tensor(np.array(M[3]), dtype=tf.float32)
-        terminal_ = tf.convert_to_tensor(np.array(M[4]), dtype=tf.float32)
+        # Prepare sample batch
+        old_state_, action_, new_state_, reward_, terminal_ = Sequencing(M)
         # Reinforcement training
         train(old_state_, action_, new_state_, reward_, terminal_)
         # Save the last observation (optional)
@@ -215,9 +252,13 @@ def Fit(model):
         # Update politics
         if epsilon > EPSILON_END : epsilon -= DECAY_RATE
         # Ending
-        if (epsilon < EPSILON_END) and (cycle_step < BEST_SCORE) : break
+        if (epsilon < EPSILON_END) and (np.mean(SCORE[-20:]) < BEST_SCORE) : break
+        # Avoid Q overestimation by an other politics
+        if e % UPDATE_WEIGHT == 0 and e > 0 :
+            for a, b in zip(model_cible.variables, model_primaire.variables):
+                a.assign(b)
     # Update model
-    model.save('QmodelTrace')
+    model.save('QmodelTrace_')
 
 def Predict(model):
     # Importing a image
@@ -240,15 +281,21 @@ def Predict(model):
 
 ################################### MAIN
 def main():
-    global model, optimizer, criterion
-    # Initialize neural network parameters and optimizer
-    model = Net()
+    global model_primaire, model_cible, optimizer, criterion
+    # Initialize 2-Q Network
+    model_primaire = Net()
+    model_cible = tf.keras.models.clone_model(model_primaire)
+    for a, b in zip(model_cible.variables, model_primaire.variables):
+        a.assign(b)
+    # Initialize optimizer and loss
     optimizer = tf.keras.optimizers.Adam(learning_rate=1E-4)
     criterion = tf.keras.metrics.Mean()
     # Adjust model with polygon in image
-    try : 
-        model = models.load_model('QmodelTrace')
+    """
+    try : model = models.load_model('QmodelTrace')
     except : Fit(model)
+    """
+    Fit(model)
     # Predict polygons in image
     polygons = Predict(model)
     # Construct vectorial imag
