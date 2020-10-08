@@ -192,7 +192,6 @@ def train(observation, action, next_observation, reward, done):
     criterion(loss)
     criterion.reset_states()
 
-
 ################################### DATA REARANGEMENT
 def Sequencing(memory) :
     # List to Array
@@ -211,7 +210,7 @@ def Sequencing(memory) :
     return old_state_, action_, new_state_, reward_, terminal_
 
 ################################### ALGORITHMIC'S PART
-def Fit(model):
+def Fit():
     global env, M
     # Initialize politics
     epsilon = EPSILON_START
@@ -258,7 +257,7 @@ def Fit(model):
             for a, b in zip(model_cible.variables, model_primaire.variables):
                 a.assign(b)
     # Update model
-    model.save('QmodelTrace_')
+    model_cible.save('QmodelTrace_target')
 
 def Predict(model):
     # Importing a image
