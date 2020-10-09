@@ -6,7 +6,7 @@ Created on Mon Oct  5 21:10:33 2020
 """
 import numpy as np, pylab as plt, tensorflow as tf
 from tensorflow.keras import models, layers
-import cv2, skvideo.io, scipy as sp
+import cv2, os, skvideo.io, scipy as sp
 
 ################################### PARAMETER
 EPOCH = 10000
@@ -27,6 +27,8 @@ COEFF, POLITICS = (2./3, 1./3), ['exemple','exploration','exploitation']
 CONST_ERR, CYCLE_MAX = 1.5, 2*SIZE**2
 BEST_SCORE = (np.pi)*SIZE
 AGGRESIVITY = 2 # max = 1, min = 4
+# Predict
+FILENAME = 'TEST.png'
 
 ################################### MODEL  
 # Network Architechture
@@ -261,13 +263,26 @@ def Fit():
 
 def Predict(model):
     # Importing a image
-    img_rgb = cv2.imread(DIR)
-    # Normalise image
-    img_ = img.mean()
-    # Normalise&Contouring image by 6 values
-    img_ = [1,6] # 0 and 7 for action/empty
-    # Adding position
-    img[randomTuple] = 0
+    img_original = cv2.imread(os.getcwd() + os.path.sep + FILENAME)
+    # Resize dimension image
+    img_ = cv2.resize(cv2.cvtColor(img_init, cv2.COLOR_BGR2GRAY), (SIZE, SIZE))
+    img_batch = img_.ravel()
+    # Calculate number of contours
+    unique, counts = np.unique(img_batch, return_counts=True)
+    N_contour = min(len(unique[counts > SIZE/2]), 6)
+    # Calculate euclidean distance
+    hist, bin_edges = np.histogram(img_batch)
+    idx = np.argsort(hist)[-N_contour:]
+    Vy = []
+    for i in idx : Vy += [np.linalg.norm(img_batch[None]-bin_edges[i][None], axis=0)]
+    Vy = np.array(Vy)
+    vx,vy = np.where(Vy == Vy.min(axis=0))
+    # Contour image
+    img_init = vx[np.argsort(vy)].reshape(SIZE,SIZE)+1
+    # Image observation (adding position)
+    img_observation = img_init.copy()
+    img_observation[tuple(np.random.randint(0,SIZE, (2)))] = 0
+    # BATCH Sequence
     # Action loop
     while True :
         action = Sol('exploitation')
@@ -296,7 +311,7 @@ def main():
     """
     Fit()
     # Predict polygons in image
-    polygons = Predict(model)
+    polygons = Predict()
     # Construct vectorial imag
     plt.fill(posList, color = img_rgb[:].mean())
     # Save in SVG format
