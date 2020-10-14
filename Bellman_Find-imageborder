@@ -30,9 +30,10 @@ CONST_ERR, CYCLE_MAX = 1.5, 2*SIZE**2
 BEST_SCORE = (np.pi)*SIZE
 AGGRESIVITY = 2 # max = 1, min = 4
 # Predict
-FILENAME = "portrait.png"
+FILENAME = "1_portrait.png"
 METHODS = 'exemple'
-NB_COLOR = 32
+NB_COLOR, s = 16, int(3*(SIZE/100))
+SMOOTH = (s,s)
 # Animation
 NB_CLUSTER = 16
 ALPHA = 0.99
@@ -293,7 +294,9 @@ def Predict():
     # Resize dimension image
     img_c = cv2.resize(img_original, (SIZE, SIZE))
     img_ = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
-    img_batch = img_.ravel()
+    # Smooth and linearize
+    img_blur = cv2.blur(img_,SMOOTH)
+    img_batch = img_blur.ravel()
     # Calculate minimum number of contours
     unique, counts = np.unique(img_batch, return_counts=True)
     N_contour = min(len(unique[counts > np.sqrt(SIZE)]), NB_COLOR)
@@ -394,7 +397,7 @@ def Animate(route, no_animation = True) :
         return color_point, line_tracing
     # Animate curve
     anim = animation.FuncAnimation(fig, animate, frames= int(len(position)/N_STEP)+END_FRAME)
-    anim.save(filename='1_animation.mp4', writer='ffmpeg', fps=30) # png for alpha
+    anim.save(filename='2_animation.mp4', writer='ffmpeg', fps=30) # png for alpha
     plt.scatter(tri_loc_xy[:,0], tri_loc_xy[:,1], c = tri_color_anim, s=10)
     plt.close
 
