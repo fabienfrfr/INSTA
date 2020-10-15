@@ -413,10 +413,8 @@ def main():
     optimizer = tf.keras.optimizers.Adam(learning_rate=1E-4)
     criterion = tf.keras.metrics.Mean()
     # Adjust model with polygon in image
-    """
     try : model_primaire = models.load_model('QmodelTrace_target')
     except : Fit()
-    """
     # Predict route tracing in image
     route = Predict()
     # Animate route
