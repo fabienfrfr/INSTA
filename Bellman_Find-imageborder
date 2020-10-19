@@ -8,24 +8,25 @@ import numpy as np, pylab as plt, tensorflow as tf
 from tensorflow.keras import models, layers
 import cv2, os, skvideo.io, scipy as sp
 import matplotlib.animation as animation
+from matplotlib.collections import PolyCollection
 from sklearn.cluster import KMeans
     
 ################################### PARAMETER
-EPOCH = 30000
+EPOCH = 20000
 # Net
 GAMMA = tf.constant(0.9)
 NBR_ACTION = 5 # + une action lorsque confirmation (80% polygon min)
 NBR_TF_ACTION = tf.constant(NBR_ACTION)
-UPDATE_WEIGHT = 100 # primary 2 target
+UPDATE_WEIGHT = 100 # primary to target
 # Polygon
 NBR_VERTEX = 4
 NB_POLY = 2
 # Image
-SIZE, BOX = 32, 7
+SIZE, BOX = 128, 7
 NB_COLOR = 8
 # Dilemna
 EPSILON_START, EPSILON_END = 1., 0.1
-DECAY_RATE = 0.01
+DECAY_RATE = 0.015
 EXMPL = 1./3
 COEFF = (EXMPL, 1 - EXMPL) # exemple, exploration
 # Game rule
@@ -35,14 +36,14 @@ AGGRESSIVITY = 1./10 # action 5 randomness
 # Predict
 FILENAME = "1_portrait.png"
 METHODS = 'exemple'
-s = int(5*(SIZE/100))
+s = int(2*(SIZE/100))
 SMOOTH = (s,s)
 # Animation
 NB_CLUSTER = 16
 ALPHA = 0.99
 N_STEP, N_LINE, END_FRAME = 50, 10, 30
 NO_ANIM = False
-STYLE = 0 # 0 = Pointillism, 1 = Low Poly, 2 = Concave Hull
+STYLE = 1 # 0 = Pointillism, 1 = Low Poly, 2 = Concave Hull
 
 ################################### GEOMETRIC
 # Counterclockwise sorting
@@ -57,7 +58,7 @@ def ccw_sort(points, return_sorted=False):
 # Network Architechture
 def Net():
     # image
-    entree = layers.Input(shape=(BOX,BOX, 2), dtype='float32')
+    entree = layers.Input(shape=(BOX,BOX, 3), dtype='float32')
     # 2 couches de convolution
     result = layers.Conv2D(8, 3, activation='relu', padding='same', strides=2)(entree/8)
     result = layers.Conv2D(16, 3, activation='relu', padding='same', strides=2)(result)
@@ -84,13 +85,14 @@ def Update_pos(position, action) :
     return new_position
     
 def Update_img(image, empty, end_position) :
-    img_0, img_1 = image.copy(), np.ones(image.shape)
+    img_0, img_1, img_2 = image.copy(), np.zeros(image.shape), np.ones(image.shape)
+    # Localisation in image
+    img_1[tuple(end_position)] = NB_COLOR+2
     # Empty image actualisation
     if len(empty) > 0 : 
-        for h in empty : img_1[tuple(h)] = 0
-    # Localisation in image
-    img_0[tuple(end_position)] = NB_COLOR+2
-    return np.concatenate((img_0[None],img_1[None]))
+        for h in empty : img_2[tuple(h)] = 0
+    # Concatenate
+    return np.concatenate((img_0[None],img_1[None],img_2[None]))
 
 def Update_box(box_idx, position, full_image):
     x_loc, y_loc = box_idx[0] + position[0], box_idx[1] + position[1]
@@ -100,7 +102,8 @@ def Update_box(box_idx, position, full_image):
     # Box observation
     box_0 = full_image[0][tuple(map(tuple, box_))].reshape(BOX,BOX)
     box_1 = full_image[1][tuple(map(tuple, box_))].reshape(BOX,BOX)
-    return np.concatenate((box_0[:,:,None],box_1[:,:,None]), axis = 2)
+    box_2 = full_image[2][tuple(map(tuple, box_))].reshape(BOX,BOX)
+    return np.concatenate((box_0[:,:,None],box_1[:,:,None],box_2[:,:,None]), axis = 2)
 
 class Env():
     def __init__(self):
@@ -341,6 +344,7 @@ def Predict():
     # Route of model
     return np.array(M[0]), np.array(M[1])
 
+################################### PLOT PARTS
 def Animate(route, no_animation = True) :
     global tri_color_anim
     # Extract route array
@@ -350,7 +354,7 @@ def Animate(route, no_animation = True) :
     dist_xy = np.cumsum(dist_xy)
     # Calculate border points
     index = np.where(action == 4)[0]
-    points = position[index]
+    points = position[index].copy()
     dist_action4 = dist_xy[index]
     # Triangulation
     Tri = sp.spatial.Delaunay(points)
@@ -385,10 +389,14 @@ def Animate(route, no_animation = True) :
     # Delete border
     ax.spines['bottom'].set_color('None'); ax.spines['top'].set_color('None') 
     ax.spines['right'].set_color('None'); ax.spines['left'].set_color('None')
-    # Create noeud/arete to update
-    color_point = plt.scatter(tri_loc_xy[:,0], tri_loc_xy[:,1], c = tri_color_anim, s=10)
-    # Triangulation color to update
-    #tpc = plt.tripcolor(triang, z, shading='flat')
+    ### Style output
+    if STYLE == 0 :
+        # Create noeud/arete to update
+        tri_style = plt.scatter(tri_loc_xy[:,0], tri_loc_xy[:,1], c = tri_color_anim, s=10)
+    elif STYLE == 1 :
+        # Triangulation color to update
+        tri_style = PolyCollection(points[Tri.simplices], lw = 1., edgecolors=tri_color_anim, facecolors=tri_color_anim)
+        ax.add_collection(tri_style)
     # Line de parcours
     line_tracing = ax.plot([],[], color='k')[0]
     def animate(i):
@@ -397,7 +405,11 @@ def Animate(route, no_animation = True) :
             Distance = dist_xy[t]
             # Color scattering change
             tri_color_anim[dist_tri < Distance] = tri_color_cluster[dist_tri < Distance]
-            color_point.set_color(tri_color_anim)
+            ### Style updating
+            if STYLE == 0 : tri_style.set_color(tri_color_anim)
+            elif STYLE == 1 :
+                tri_style.set_edgecolors(tri_color_anim)
+                tri_style.set_facecolor(tri_color_anim)
             # Update line
             dist_sub = dist_action4[dist_action4 < Distance]
             if len(dist_sub) > 0 :
@@ -405,11 +417,11 @@ def Animate(route, no_animation = True) :
                 line_tracing.set_data(points[idx-N_LINE:idx,0], points[idx-N_LINE:idx,1])
             else : line_tracing.set_data([], [])
         else : line_tracing.set_data([], [])
-        return color_point, line_tracing
+        return tri_style, line_tracing
     # Animate curve
     anim = animation.FuncAnimation(fig, animate, frames= int(len(position)/N_STEP)+END_FRAME)
     anim.save(filename='2_animation.mp4', writer='ffmpeg', fps=30) # png for alpha
-    plt.scatter(tri_loc_xy[:,0], tri_loc_xy[:,1], c = tri_color_anim, s=10)
+    plt.savefig("2_portrait.png", dpi=360)
     plt.close
 
 ################################### MAIN
