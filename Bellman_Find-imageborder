@@ -11,34 +11,38 @@ import matplotlib.animation as animation
 from sklearn.cluster import KMeans
     
 ################################### PARAMETER
-EPOCH = 20000
+EPOCH = 30000
 # Net
-NB_SEQUENCE, GAMMA = 2, tf.constant(0.9)
+GAMMA = tf.constant(0.9)
 NBR_ACTION = 5 # + une action lorsque confirmation (80% polygon min)
 NBR_TF_ACTION = tf.constant(NBR_ACTION)
-UPDATE_WEIGHT = 50
+UPDATE_WEIGHT = 100 # primary 2 target
 # Polygon
 NBR_VERTEX = 4
+NB_POLY = 2
 # Image
-SIZE = 128
+SIZE, BOX = 32, 7
+NB_COLOR = 8
 # Dilemna
 EPSILON_START, EPSILON_END = 1., 0.1
 DECAY_RATE = 0.01
-COEFF = (2./3, 1./3)
+EXMPL = 1./3
+COEFF = (EXMPL, 1 - EXMPL) # exemple, exploration
 # Game rule
-CONST_ERR, CYCLE_MAX = 1.5, 2*SIZE**2
+CYCLE_MAX = 2*SIZE**2
 BEST_SCORE = (np.pi)*SIZE
-AGGRESIVITY = 2 # max = 1, min = 4
+AGGRESSIVITY = 1./10 # action 5 randomness
 # Predict
 FILENAME = "1_portrait.png"
 METHODS = 'exemple'
-NB_COLOR, s = 16, int(3*(SIZE/100))
+s = int(5*(SIZE/100))
 SMOOTH = (s,s)
 # Animation
 NB_CLUSTER = 16
 ALPHA = 0.99
 N_STEP, N_LINE, END_FRAME = 50, 10, 30
 NO_ANIM = False
+STYLE = 0 # 0 = Pointillism, 1 = Low Poly, 2 = Concave Hull
 
 ################################### GEOMETRIC
 # Counterclockwise sorting
@@ -53,7 +57,7 @@ def ccw_sort(points, return_sorted=False):
 # Network Architechture
 def Net():
     # image
-    entree = layers.Input(shape=(SIZE,SIZE, NB_SEQUENCE), dtype='float32')
+    entree = layers.Input(shape=(BOX,BOX, 2), dtype='float32')
     # 2 couches de convolution
     result = layers.Conv2D(8, 3, activation='relu', padding='same', strides=2)(entree/8)
     result = layers.Conv2D(16, 3, activation='relu', padding='same', strides=2)(result)
@@ -80,72 +84,80 @@ def Update_pos(position, action) :
     return new_position
     
 def Update_img(image, empty, end_position) :
-    new_image = image.copy()
+    img_0, img_1 = image.copy(), np.ones(image.shape)
     # Empty image actualisation
     if len(empty) > 0 : 
-        for h in empty : new_image[tuple(h)] = 0
+        for h in empty : img_1[tuple(h)] = 0
     # Localisation in image
-    new_image[tuple(end_position)] = NB_COLOR+2
-    return [new_image]
+    img_0[tuple(end_position)] = NB_COLOR+2
+    return np.concatenate((img_0[None],img_1[None]))
+
+def Update_box(box_idx, position, full_image):
+    x_loc, y_loc = box_idx[0] + position[0], box_idx[1] + position[1]
+    box_ = np.concatenate((x_loc.ravel()[None], y_loc.ravel()[None]))
+    # Box CLP
+    box_ = np.mod(box_, SIZE)
+    # Box observation
+    box_0 = full_image[0][tuple(map(tuple, box_))].reshape(BOX,BOX)
+    box_1 = full_image[1][tuple(map(tuple, box_))].reshape(BOX,BOX)
+    return np.concatenate((box_0[:,:,None],box_1[:,:,None]), axis = 2)
 
 class Env():
     def __init__(self):
         self.i = 0
-        self.EUCLID = [None,None] # position, polygon, size_polygon
-        self.IMG = [None,None,[]] # initial, observation, hole_list
-        self.VAR_OUT = [None,False] # Reward, Done
+        self.BOX = np.mgrid[-int(BOX/2):int(BOX/2)+1, -int(BOX/2):int(BOX/2)+1] # location
+        self.EUCLID = [None,None] # Position, Edge_polygon
+        self.IMG = [None,None,[]] # Initial, Large_Observation, Hole List
+        self.VAR_OUT = [None,None,False] # BOX_Observation, Reward, Done
     def reset(self, img_init = None):
         self.__init__()
         # Initialize position
         self.EUCLID[0] = np.random.randint(0,SIZE, (2))
         if img_init is None:
+            # Image initialisation (BG = 1)
+            img = np.ones((SIZE,SIZE), np.uint8)
 		    # Polygone generator (sorted)
-            p = ccw_sort(np.random.randint(1, SIZE-1, (NBR_VERTEX,2)))
-		    # Image initialisation (BG = 1)
-            img, c = np.ones((SIZE,SIZE), np.uint8), np.random.randint(2, 7)
-            self.IMG[0] = np.swapaxes(cv2.drawContours(img, [p], -1, c, -1), 0,1)
+            for i in range(NB_POLY) :
+                p = ccw_sort(np.random.randint(1, SIZE-1, (NBR_VERTEX,2)))
+                c = np.random.randint(2, NB_COLOR)
+                self.IMG[0] = np.swapaxes(cv2.drawContours(img, [p], -1, c, -1), 0,1)
         else :
             self.IMG[0] = img_init.astype(np.float)
-        # Manual contouring (laplacian method)
-        kernel = kernel = np.array([[0,1,0],[1,-4,1],[0,1,0]],np.float32)
+        # Manual contouring (Laplacian method)
+        kernel = np.array([[0,1,0],[1,-4,1],[0,1,0]],np.float32)
         img_border = cv2.filter2D(self.IMG[0], -1, kernel)
-        # Correction
-        img_border[img_border < 0 ] = 0
-        # Find polygons contour
+        # Find polygons contour (Manual)
         x,y = np.where(img_border != 0)
         self.EUCLID[1] = np.concatenate((x[:,None], y[:,None]), axis = 1)
-        # Update image
+        # Update image observation (Large)
         self.IMG[1] = Update_img(self.IMG[0], [], self.EUCLID[0])
-        return self.IMG[1]
+        # Update box observation 
+        self.VAR_OUT[0] = Update_box(self.BOX, self.EUCLID[0], self.IMG[1])
+        return self.VAR_OUT[0]
     def step(self, action):
+        self.i += 1
         # Games rules
         if action != 4 :
-            if self.i % AGGRESIVITY != 0 : self.VAR_OUT[0] = 0
-            else : self.VAR_OUT[0] = -1
+            self.VAR_OUT[1] = 0
             # Update position
             self.EUCLID[0] = Update_pos(self.EUCLID[0], action)
-            self.i += 1
         else :
             self.IMG[2] += [self.EUCLID[0].copy()]
             dst = np.linalg.norm(self.EUCLID[0] - self.EUCLID[1], axis=1)
             if dst.min() > 0 : 
-                self.VAR_OUT[0] = -10
+                self.VAR_OUT[1] = -10
             else :
-                self.VAR_OUT[0] = +10
+                self.VAR_OUT[1] = +10
                 # Update vertex solution
                 idx = int(np.where(dst == dst.min())[0][0])
                 self.EUCLID[1] = np.delete(self.EUCLID[1], idx,0)
-            self.i = 0
         # Update image
         self.IMG[1] = Update_img(self.IMG[0], self.IMG[2], self.EUCLID[0])
+        # Update box
+        self.VAR_OUT[0] = Update_box(self.BOX, self.EUCLID[0], self.IMG[1])
         # Condition stop
-        if len(self.IMG[2]) > CONST_ERR*self.EUCLID[2] :
-            self.VAR_OUT[0] = -50
-            self.VAR_OUT[1] = True
-        elif len(self.EUCLID[1]) == 0 :
-            self.VAR_OUT[0] = +50
-            self.VAR_OUT[1] = True
-        return self.IMG[1], self.VAR_OUT[0], self.VAR_OUT[1]
+        if self.i > CYCLE_MAX or len(self.EUCLID[1]) == 0 : self.VAR_OUT[2] = True
+        return self.VAR_OUT
         
 ################################### LEARNING
 def Simulation(observation, dilemna):
@@ -180,12 +192,10 @@ def Sol(dilemna, obs_list):
             elif (idx == 1) and (sign == -1) : next_action = 3
     elif dilemna == 'exploration' :
         # Non linear randomized number
-        next_action = np.random.choice(5, 1, p=4*[0.24]+[0.04])[0]
+        next_action = np.random.choice(5, 1, p=4*[(1-AGGRESSIVITY)/4]+[AGGRESSIVITY])[0]
     else :
-        # Sequencing image
-        tab_sequence = np.concatenate((obs_list[-2][0][:,:,None], obs_list[-1][0][:,:,None]), axis=-1)
         # Passing image in Network
-        output = model_primaire(tf.convert_to_tensor(np.expand_dims(tab_sequence, axis=0)))
+        output = model_primaire(tf.convert_to_tensor(np.expand_dims(obs_list[-1], axis=0)))
         # Max values classification
         next_action = int(tf.argmax(output[0], axis=-1))
     return next_action
@@ -219,21 +229,18 @@ def Sequencing(memory) :
     old_state_, action_ = np.array(memory[0]).squeeze(), np.array(memory[1])
     new_state_, reward_ = np.array(memory[2]).squeeze(), np.array(memory[3])
     terminal_ = np.array(memory[4])
-    # Concatenate 2 sequence (need to adapt for N)
-    old_state_ = np.concatenate((old_state_[:-1,:,:,None], old_state_[1:,:,:,None]), axis = 3)
-    new_state_ = np.concatenate((new_state_[:-1,:,:,None], new_state_[1:,:,:,None]), axis = 3)
     # Adapt data for tf.function
     old_state_ = tf.convert_to_tensor(old_state_, dtype=tf.float32)
-    action_ = tf.convert_to_tensor(action_[1:], dtype=tf.int32)
+    action_ = tf.convert_to_tensor(action_, dtype=tf.int32)
     new_state_ = tf.convert_to_tensor(new_state_, dtype=tf.float32)
-    reward_ = tf.convert_to_tensor(reward_[1:], dtype=tf.float32)
-    terminal_ = tf.convert_to_tensor(terminal_[1:], dtype=tf.float32)
+    reward_ = tf.convert_to_tensor(reward_, dtype=tf.float32)
+    terminal_ = tf.convert_to_tensor(terminal_, dtype=tf.float32)
     return old_state_, action_, new_state_, reward_, terminal_
 
 ################################### ALGORITHMIC'S PART
 POLITICS = ['exemple','exploration','exploitation']
 def Fit():
-    global env, M
+    global env, M, tab_video
     # Initialize politics
     epsilon = EPSILON_START
     # Initialize control-environment
@@ -243,10 +250,9 @@ def Fit():
     for e in np.arange(EPOCH):
         # Sample initialisation (memory : 'old_state', 'action', 'new_state', 'reward', 'terminal')
         M = [[],[],[],[],[]]
+        tab_video = []
         # Reset environment
         observation = env.reset()
-        # BATCH SEQUENCE
-        observation = Simulation(observation, 'exemple')[0]
         # Action loop
         cycle_step = 0
         while cycle_step < CYCLE_MAX :
@@ -254,14 +260,14 @@ def Fit():
             dilemna = np.random.choice(POLITICS, 1, p=[COEFF[0]*epsilon, COEFF[1]*epsilon, 1-epsilon])[0]
             # Simulate 
             observation, done = Simulation(observation, dilemna)
+            # video tab
+            if e % 10 == 0 : tab_video.append(np.mean(env.IMG[1], axis=0))
             # Ending loop :
             if done : break
             else : 
                 cycle_step += 1
         # Saving score
         SCORE.append(cycle_step)
-        # Negative reward if no solution
-        if cycle_step == CYCLE_MAX : M[4][-1] = -100
         # Display result
         print("EPOCH:", e, "Epsilon", epsilon, "Cycle", cycle_step)
         # Prepare sample batch
@@ -271,8 +277,10 @@ def Fit():
         criterion.reset_states()
         # Save the last observation (optional)
         if e % 10 == 0 :
-            video = (255*np.array(M[2], dtype=np.float32).squeeze()/8).astype(np.int)
-            skvideo.io.vwrite("OUT/outputvideo_"+str(e)+".mp4", video)
+            video = (255*np.array(tab_video, dtype=np.float32).squeeze()/NB_COLOR).astype(np.int)
+            skvideo.io.vwrite("OUT/outputvideo_"+str(e)+"_FULL.mp4", video)
+            video = (255*np.array(M[2], dtype=np.float32).squeeze()/NB_COLOR).astype(np.int)
+            skvideo.io.vwrite("OUT/outputvideo_"+str(e)+"_BOX.mp4", video)
         # Ending
         if (epsilon < EPSILON_END) and (np.mean(SCORE[-20:]) < BEST_SCORE) : break
         # Avoid Q overestimation by an other politics
@@ -368,7 +376,7 @@ def Animate(route, no_animation = True) :
         c = np.mean(tri_color_[tri_cluster_group == i], axis=0)/255
         tri_color_cluster[tri_cluster_group == i] = (c[2], c[1], c[0], ALPHA)
     # Figure
-    if no_animation : return
+    #if no_animation : return
     fig = plt.figure(figsize=(5,5), dpi=120) 
     ax = fig.add_subplot(111)
     fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0, hspace=0)
@@ -377,8 +385,11 @@ def Animate(route, no_animation = True) :
     # Delete border
     ax.spines['bottom'].set_color('None'); ax.spines['top'].set_color('None') 
     ax.spines['right'].set_color('None'); ax.spines['left'].set_color('None')
-    # Création des noeud/arete à mettre à jour :
+    # Create noeud/arete to update
     color_point = plt.scatter(tri_loc_xy[:,0], tri_loc_xy[:,1], c = tri_color_anim, s=10)
+    # Triangulation color to update
+    #tpc = plt.tripcolor(triang, z, shading='flat')
+    # Line de parcours
     line_tracing = ax.plot([],[], color='k')[0]
     def animate(i):
         t = i*N_STEP ; print(t)
