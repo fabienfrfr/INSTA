@@ -10,7 +10,9 @@ import cv2, os, skvideo.io, scipy as sp
 import matplotlib.animation as animation
 from matplotlib.collections import PolyCollection
 from sklearn.cluster import KMeans
-    
+from shapely.geometry import Polygon, MultiPolygon
+from shapely.ops import cascaded_union
+
 ################################### PARAMETER
 EPOCH = 20000
 # Net
@@ -22,8 +24,8 @@ UPDATE_WEIGHT = 100 # primary to target
 NBR_VERTEX = 4
 NB_POLY = 2
 # Image
-SIZE, BOX = 128, 7
-NB_COLOR = 8
+SIZE, BOX = 256, 7
+NB_COLOR = 16
 # Dilemna
 EPSILON_START, EPSILON_END = 1., 0.1
 DECAY_RATE = 0.015
@@ -36,13 +38,14 @@ AGGRESSIVITY = 1./10 # action 5 randomness
 # Predict
 FILENAME = "1_portrait.png"
 METHODS = 'exemple'
-s = int(2*(SIZE/100))
+s = max(int(2*(SIZE/100)),1)
 SMOOTH = (s,s)
 # Animation
-NB_CLUSTER = 16
+PASS_STEP = 16
+NB_CLUSTER = 8
 ALPHA = 0.99
 N_STEP, N_LINE, END_FRAME = 50, 10, 30
-NO_ANIM = False
+ANIM = False
 STYLE = 1 # 0 = Pointillism, 1 = Low Poly, 2 = Concave Hull
 
 ################################### GEOMETRIC
@@ -279,7 +282,7 @@ def Fit():
         train(old_state_, action_, new_state_, reward_, terminal_)
         criterion.reset_states()
         # Save the last observation (optional)
-        if e % 10 == 0 :
+        if e % 50 == 0 :
             video = (255*np.array(tab_video, dtype=np.float32).squeeze()/NB_COLOR).astype(np.int)
             skvideo.io.vwrite("OUT/outputvideo_"+str(e)+"_FULL.mp4", video)
             video = (255*np.array(M[2], dtype=np.float32).squeeze()/NB_COLOR).astype(np.int)
@@ -345,10 +348,24 @@ def Predict():
     return np.array(M[0]), np.array(M[1])
 
 ################################### PLOT PARTS
-def Animate(route, no_animation = True) :
+def Figures(size_new):
+    fig = plt.figure(figsize=(5,5), dpi=120) 
+    ax = fig.add_subplot(111)
+    fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0, hspace=0)
+    plt.xticks([]), plt.yticks([])
+    plt.xlim(0,size_new); plt.ylim(0,size_new)
+    # Delete border
+    ax.spines['bottom'].set_color('None'); ax.spines['top'].set_color('None') 
+    ax.spines['right'].set_color('None'); ax.spines['left'].set_color('None')
+    return fig, ax
+    
+def Animate(route, anim_style = False) :
     global tri_color_anim
     # Extract route array
     action, position = route
+    # Filter and Reduce nb points
+    position = sp.ndimage.gaussian_filter1d(position, 1, axis=0)
+    action, position = action[::PASS_STEP], position[::PASS_STEP]
     # Distance traveled
     dist_xy = np.linalg.norm(position-np.roll(position, -1, axis=0), axis=1)
     dist_xy = np.cumsum(dist_xy)
@@ -359,8 +376,9 @@ def Animate(route, no_animation = True) :
     # Triangulation
     Tri = sp.spatial.Delaunay(points)
     dist_tri = dist_xy[index][Tri.simplices.min(axis=1)]
+    coor_tri = points[Tri.simplices]
     # Mass-center localisation of triangle
-    tri_loc_xy = np.mean(points[Tri.simplices], axis=1, dtype=int)
+    tri_loc_xy = np.mean(coor_tri, axis=1, dtype=int)
     size_new = tri_loc_xy.max()
     tri_loc_img = tuple(map(tuple, tri_loc_xy.T))
     # Extract color of triangle
@@ -379,25 +397,18 @@ def Animate(route, no_animation = True) :
     for i in np.unique(tri_cluster_group) :
         c = np.mean(tri_color_[tri_cluster_group == i], axis=0)/255
         tri_color_cluster[tri_cluster_group == i] = (c[2], c[1], c[0], ALPHA)
-    # Figure
-    #if no_animation : return
-    fig = plt.figure(figsize=(5,5), dpi=120) 
-    ax = fig.add_subplot(111)
-    fig.subplots_adjust(left=0, bottom=0, right=1, top=1, wspace=0, hspace=0)
-    plt.xticks([]), plt.yticks([])
-    plt.xlim(0,size_new); plt.ylim(0,size_new)
-    # Delete border
-    ax.spines['bottom'].set_color('None'); ax.spines['top'].set_color('None') 
-    ax.spines['right'].set_color('None'); ax.spines['left'].set_color('None')
+
+    ############ Figure animation
+    fig, ax = Figures(size_new)
     ### Style output
     if STYLE == 0 :
         # Create noeud/arete to update
         tri_style = plt.scatter(tri_loc_xy[:,0], tri_loc_xy[:,1], c = tri_color_anim, s=10)
     elif STYLE == 1 :
         # Triangulation color to update
-        tri_style = PolyCollection(points[Tri.simplices], lw = 1., edgecolors=tri_color_anim, facecolors=tri_color_anim)
+        tri_style = PolyCollection(coor_tri, lw = 1., edgecolors=tri_color_anim, facecolors=tri_color_anim)
         ax.add_collection(tri_style)
-    # Line de parcours
+    # Line parcours
     line_tracing = ax.plot([],[], color='k')[0]
     def animate(i):
         t = i*N_STEP ; print(t)
@@ -419,9 +430,41 @@ def Animate(route, no_animation = True) :
         else : line_tracing.set_data([], [])
         return tri_style, line_tracing
     # Animate curve
-    anim = animation.FuncAnimation(fig, animate, frames= int(len(position)/N_STEP)+END_FRAME)
-    anim.save(filename='2_animation.mp4', writer='ffmpeg', fps=30) # png for alpha
-    plt.savefig("2_portrait.png", dpi=360)
+    if anim_style :
+        anim = animation.FuncAnimation(fig, animate, frames= int(len(position)/N_STEP)+END_FRAME)
+        anim.save(filename='2_animation.mp4', writer='ffmpeg', fps=30) # png for alpha
+        plt.savefig("2_portrait.png", dpi=360)
+    plt.close()        
+    ############ Figure merged polygons
+    fig, ax = Figures(size_new)
+    # Convert to polygon shapely format
+    multipolygon, poly_color = [], []
+    for c in np.unique(tri_cluster_group):
+        idx = np.where(tri_cluster_group == c)[0]
+        polygons = map(Polygon, coor_tri[idx])
+        multipolygon += [MultiPolygon(polygons)]
+        poly_color += [tri_color_cluster[idx[0]]]
+    # Union of multiple polygon
+    merge_poly, merge_color = [], []
+    for mp, pc in zip(multipolygon, poly_color) :
+        union_poly = cascaded_union(mp)
+        # verify type
+        if isinstance(union_poly, Polygon) : 
+            union_poly = MultiPolygon([union_poly])
+        # increment
+        merge_poly += [union_poly]
+        merge_color += [np.asarray([pc]*len(union_poly))]
+    merge_color = np.concatenate(merge_color)
+    # Extract ext_coor in numpy array
+    new_coor = []
+    for mp in merge_poly :
+        for p in mp :
+            new_coor += [np.array(p.exterior.coords.xy).T]
+    # plot all polygon
+    poly = PolyCollection(new_coor, lw = 1., edgecolors=merge_color,facecolors=merge_color)
+    ax.add_collection(poly)
+    # save in vectorial format
+    plt.savefig("2_portrait.svg")
     plt.close
 
 ################################### MAIN
@@ -441,7 +484,7 @@ def main():
     # Predict route tracing in image
     route = Predict()
     # Animate route
-    Animate(route, NO_ANIM)
+    Animate(route, ANIM)
 
 if __name__ == "__main__":
 	main()
