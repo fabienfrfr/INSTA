@@ -25,7 +25,7 @@ NBR_VERTEX = 4
 NB_POLY = 2
 # Image
 SIZE, BOX = 256, 7
-NB_COLOR = 16
+NB_COLOR = 32
 # Dilemna
 EPSILON_START, EPSILON_END = 1., 0.1
 DECAY_RATE = 0.015
@@ -36,17 +36,16 @@ CYCLE_MAX = 2*SIZE**2
 BEST_SCORE = (np.pi)*SIZE
 AGGRESSIVITY = 1./10 # action 5 randomness
 # Predict
-FILENAME = "1_portrait.png"
+FILENAME = "image12.png"
 METHODS = 'exemple'
-s = max(int(2*(SIZE/100)),1)
-SMOOTH = (s,s)
+SMOOTH = (1,1)
 # Animation
-PASS_STEP = 16
+PASS_STEP = 8
 NB_CLUSTER = 8
 ALPHA = 0.99
 N_STEP, N_LINE, END_FRAME = 50, 10, 30
 ANIM = False
-STYLE = 1 # 0 = Pointillism, 1 = Low Poly, 2 = Concave Hull
+STYLE = 1 # 0 = Pointillism, 1 = Low Poly
 
 ################################### GEOMETRIC
 # Counterclockwise sorting
@@ -307,10 +306,12 @@ def Predict():
     img_original = cv2.imread(os.getcwd() + os.path.sep + FILENAME)
     # Resize dimension image
     img_c = cv2.resize(img_original, (SIZE, SIZE))
-    img_ = cv2.cvtColor(img_c, cv2.COLOR_BGR2GRAY)
-    # Smooth and linearize
-    img_blur = cv2.blur(img_,SMOOTH)
-    img_batch = img_blur.ravel()
+    # Smooth
+    img_blur = cv2.blur(img_c,SMOOTH).astype(np.uint32)
+    # 3*uint8 to unint32 form
+    img_32 = (img_blur[:,:, 0]<<16) + (img_blur[:,:, 1]<<8) + img_blur[:,:, 2]
+    # Linearise    
+    img_batch = img_32.ravel()
     # Calculate minimum number of contours
     unique, counts = np.unique(img_batch, return_counts=True)
     N_contour = min(len(unique[counts > np.sqrt(SIZE)]), NB_COLOR)
