@@ -17,17 +17,18 @@ import cv2
 from matplotlib import colors
 
 ############################################### PARAMETER
-L, H, N, T = 5, 5, 140, 10 # Largeur, Hauteur
-dx, dy = L/(N+1), H/(N+1), 
+L, H, N, T = 5, 5, 250, 10 # Largeur, Hauteur
+dx, dy = L/(N+1), H/(N+1) 
 e_, dt = 0.001, 0.25
 
 Du, Dv, F, k = 0.28, 0.12, 0.035, 0.065 # Grayscott
 
-color1, color2 = "B69756", "130e0b"
+color1, color2 = "1a0505", "b97235"
 
 ############################################### LAPLACIAN CONSTRUCT
 ########### MATRIX METHODS (spsolve)
 # Definition of the 1D Lalace operator (for L)
+lower, main, upper = -1/dx**2, 1/e_+2/(dx**2), -1/dx**2
 lower, main, upper = -1/dx**2, (1/e_+2/(dx**2)+2/(dy**2))/2, -1/dx**2
 data = [lower*np.ones(N),main*np.ones(N),upper*np.ones(N)]   # Diagonal terms
 offsets = np.array([-1,0,1])                   # Their positions
@@ -45,10 +46,15 @@ LAP2=LAP2+sp.spdiags(DN,[N],N**2,N**2)+sp.spdiags(DN,[-N],N**2,N**2)
 
 ########### FINITE METHODS (convolution)
 kernel = np.array([[0,1,0],[1,-4,1],[0,1,0]],np.float32)*dt
+# Fourier space size
+size = np.array([N+2,N+2]) + np.array(kernel.shape) - 1
+fsize = 2 ** np.ceil(np.log2(size)).astype(int)
+fslice = tuple([slice(0, int(sz)) for sz in size])
+# Kernel in fourier space
+kernel_fft = np.fft.fft2(kernel , fsize)
 """
-OTHERS METHODs (ideas) :
+OTHERS METHODs :
 Lu = (Utab[0:-2,1:-1] + Utab[1:-1,0:-2] - 4*Utab[1:-1,1:-1] + Utab[1:-1,2:] + Utab[2:  ,1:-1])/(dx**2)
-Fu, Fk = np.fft.fft(U), np.fft.fft(kernel) ; Lu = np.fft.ifft(Fu*Fk)
 """
 ############################################### C. I.
 Z = np.zeros((N+2,N+2), [('U', np.double), ('V', np.double)])
@@ -57,10 +63,14 @@ u,v = U[1:-1,1:-1], V[1:-1,1:-1] #pointer parenting
 U[...] = 1.0
 
 # Local Noise
-r,n = 10, 3
+r,n = 5, 5
 for i in np.random.randint(N-2*r, size=(n,2)):
     u[i[0]-r:i[0]+r,i[1]-r:i[1]+r] = 0.50
     v[i[0]-r:i[0]+r,i[1]-r:i[1]+r] = 0.25
+
+## Global Noise
+u += 0.075*np.random.random((N,N))
+v += 0.025*np.random.random((N,N))
 
 # Front attenuation
 U[1:-1,1:-1], V[1:-1,1:-1] = ft.gaussian(u,1), ft.gaussian(v,1)
@@ -76,7 +86,7 @@ dpi = 128 #72.0
 figsize= size[1]/float(dpi),size[0]/float(dpi)
 fig = plt.figure(figsize=(5,5), dpi=dpi, facecolor="white")
 fig.add_axes([0.0, 0.0, 1.0, 1.0], frameon=False)
-im = plt.imshow(V[5:-5,5:-5], interpolation='gaussian')#, cmap=cmap_)
+im = plt.imshow(V[5:-5,5:-5], interpolation='gaussian', cmap=cmap_)
 plt.xticks([]), plt.yticks([])
 
 ############################################### TIME LOOP RESOLUTION
@@ -91,15 +101,18 @@ n = 0
 for i in range(seq[-1]+1) :
     ### Laplacian
     if i % seq[n] == 0 :
-        #solver [S = A-¹ * Vb ; A-¹ = (1/det(A))*adj(A) such A*A-¹=In]:
+        # solver [S = A-¹ * Vb ; A-¹ = (1/det(A))*adj(A) such A*A-¹=In]:
         uu, vv = u.reshape(N**2), v.reshape(N**2)
         Lu_, Lv_ = spsolve(LAP2, uu/e_) - uu, spsolve(LAP2, vv/e_) - vv
         Lu_, Lv_ = Lu_.reshape((N,N)), Lv_.reshape((N,N))
-        #conv :
-        LU, LV = cv2.filter2D(U,-1,kernel), cv2.filter2D(V,-1,kernel)
-        #mean (compromise between stability and border effect) :
-        Lu, Lv = (Lu_ + LU[1:-1,1:-1])/2, (Lv_ + LV[1:-1,1:-1])/2
+        # conv in fourier sapce :
+        U_fft, V_fft = np.fft.fft2(U , fsize), np.fft.fft2(U , fsize)
+        LU = np.fft.ifft2(kernel_fft*U_fft)[fslice].real
+        LV = np.fft.ifft2(kernel_fft*U_fft)[fslice].real
+        # mean (compromise between stability and border effect) :
+        Lu, Lv = (Lu_ + LU[2:-2,2:-2])/2, (Lv_ + LV[2:-2,2:-2])/2
     else :
+        # Direct convolution
         Lu, Lv = cv2.filter2D(U,-1,kernel)[1:-1,1:-1], cv2.filter2D(V,-1,kernel)[1:-1,1:-1]
     
     ### Finite methods resolution
@@ -116,3 +129,4 @@ for i in range(seq[-1]+1) :
         plt.savefig("DATA/%03d.png" % n ,dpi=dpi)
         n += 1
         print(i)
+
