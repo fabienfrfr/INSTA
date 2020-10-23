@@ -20,12 +20,12 @@ GAMMA = tf.constant(0.9)
 NBR_ACTION = 5 # + une action lorsque confirmation (80% polygon min)
 NBR_TF_ACTION = tf.constant(NBR_ACTION)
 UPDATE_WEIGHT = 100 # primary to target
-# Polygon
+# Polygon train
 NBR_VERTEX = 4
 NB_POLY = 2
 # Image
-SIZE, BOX = 256, 7
-NB_COLOR = 32
+SIZE, BOX = 128, 7
+NB_COLOR = 6
 # Dilemna
 EPSILON_START, EPSILON_END = 1., 0.1
 DECAY_RATE = 0.015
@@ -36,13 +36,13 @@ CYCLE_MAX = 2*SIZE**2
 BEST_SCORE = (np.pi)*SIZE
 AGGRESSIVITY = 1./10 # action 5 randomness
 # Predict
-FILENAME = "image12.png"
+FILENAME = "Sans titre.jpg"
 METHODS = 'exemple'
-SMOOTH = (1,1)
+SMOOTH = (2,2)
 # Animation
-PASS_STEP = 8
-NB_CLUSTER = 8
-ALPHA = 0.99
+PASS_STEP = 1
+NB_CLUSTER = 2
+ALPHA = 1.
 N_STEP, N_LINE, END_FRAME = 50, 10, 30
 ANIM = False
 STYLE = 1 # 0 = Pointillism, 1 = Low Poly
@@ -128,11 +128,19 @@ class Env():
                 self.IMG[0] = np.swapaxes(cv2.drawContours(img, [p], -1, c, -1), 0,1)
         else :
             self.IMG[0] = img_init.astype(np.float)
-        # Manual contouring (Laplacian method)
-        kernel = np.array([[0,1,0],[1,-4,1],[0,1,0]],np.float32)
-        img_border = cv2.filter2D(self.IMG[0], -1, kernel)
+        # Manual contouring (Canny method)
+        k = int(SIZE / 16)
+        img_border = cv2.Canny(img_init.astype(np.uint8), k,k)
+        # Denoising
+        ret, markers = cv2.connectedComponents(np.uint8(img_border))
+        unique, counts = np.unique(markers, return_counts=True)
+        values_out = unique[np.where(counts < np.median(counts))[0]]
+        for v_out in values_out :
+            idx = np.where(markers == v_out)
+            markers[idx] = 0
+        markers[markers > 0] = 1
         # Find polygons contour (Manual)
-        x,y = np.where(img_border != 0)
+        x,y = np.where(markers != 0)
         self.EUCLID[1] = np.concatenate((x[:,None], y[:,None]), axis = 1)
         # Update image observation (Large)
         self.IMG[1] = Update_img(self.IMG[0], [], self.EUCLID[0])
@@ -308,23 +316,10 @@ def Predict():
     img_c = cv2.resize(img_original, (SIZE, SIZE))
     # Smooth
     img_blur = cv2.blur(img_c,SMOOTH).astype(np.uint32)
-    # 3*uint8 to unint32 form
-    img_32 = (img_blur[:,:, 0]<<16) + (img_blur[:,:, 1]<<8) + img_blur[:,:, 2]
-    # Linearise    
-    img_batch = img_32.ravel()
-    # Calculate minimum number of contours
-    unique, counts = np.unique(img_batch, return_counts=True)
-    N_contour = min(len(unique[counts > np.sqrt(SIZE)]), NB_COLOR)
-    # Calculate color distribution
-    hist, bin_edges = np.histogram(img_batch, 2*NB_COLOR)
-    idx = np.argsort(hist)[-N_contour:]
-    # Group color with euclidean distance minimum
-    Vy = []
-    for i in idx : Vy += [np.linalg.norm(img_batch[None]-bin_edges[i][None], axis=0)]
-    Vy = np.array(Vy)
-    vx,vy = np.where(Vy == Vy.min(axis=0))
-    # Reconstruct image
-    img_init = vx[np.argsort(vy)].reshape(SIZE,SIZE)+1
+    # Clustering
+    kmean = KMeans(n_clusters=NB_COLOR).fit(img_blur.reshape(-1,3))
+    # level image
+    img_init = kmean.labels_.reshape(SIZE,SIZE)
     # Put image in environment
     env.reset(img_init)
     observation = env.IMG[1]
@@ -388,7 +383,7 @@ def Animate(route, anim_style = False) :
     # K-mean clustering of group color
     tri_cluster_group = tri_color_group.copy()
     n = 0
-    for i in np.unique(img_init):
+    for i in np.unique(tri_color_group) : #np.unique(img_init):
         kmean = KMeans(n_clusters=NB_CLUSTER, random_state=0).fit(tri_loc_xy[tri_color_group == i])
         tri_cluster_group[tri_color_group == i] = kmean.labels_ + n*NB_CLUSTER
         n += 1
