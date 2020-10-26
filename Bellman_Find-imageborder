@@ -9,7 +9,7 @@ from tensorflow.keras import models, layers
 import cv2, os, skvideo.io, scipy as sp
 import matplotlib.animation as animation
 from matplotlib.collections import PolyCollection
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import cascaded_union
 
@@ -25,7 +25,7 @@ NBR_VERTEX = 4
 NB_POLY = 2
 # Image
 SIZE, BOX = 128, 7
-NB_COLOR = 6
+NB_COLOR = 8 # 8 (low poly) to 64 (pointillism)
 # Dilemna
 EPSILON_START, EPSILON_END = 1., 0.1
 DECAY_RATE = 0.015
@@ -36,16 +36,17 @@ CYCLE_MAX = 2*SIZE**2
 BEST_SCORE = (np.pi)*SIZE
 AGGRESSIVITY = 1./10 # action 5 randomness
 # Predict
-FILENAME = "Sans titre.jpg"
-METHODS = 'exemple'
-SMOOTH = (2,2)
+FILENAME = "1_portrait.png"
+METHODS = 'exemple' # exemple or exploitation
+SMOOTH = (5,5)
 # Animation
-PASS_STEP = 1
+SIGMA, PASS_STEP = 0.1, 1
 NB_CLUSTER = 2
 ALPHA = 1.
-N_STEP, N_LINE, END_FRAME = 50, 10, 30
-ANIM = False
-STYLE = 1 # 0 = Pointillism, 1 = Low Poly
+N_STEP, N_LINE, END_FRAME = 100, 10, 20
+ANIM = True
+STYLE = 0 # 0 = Pointillism, 1 = Low Poly
+DOT = 30 # For pointillism
 
 ################################### GEOMETRIC
 # Counterclockwise sorting
@@ -109,7 +110,7 @@ def Update_box(box_idx, position, full_image):
 
 class Env():
     def __init__(self):
-        self.i = 0
+        self.ITER, self.CYCLE = 0, 0
         self.BOX = np.mgrid[-int(BOX/2):int(BOX/2)+1, -int(BOX/2):int(BOX/2)+1] # location
         self.EUCLID = [None,None] # Position, Edge_polygon
         self.IMG = [None,None,[]] # Initial, Large_Observation, Hole List
@@ -129,26 +130,19 @@ class Env():
         else :
             self.IMG[0] = img_init.astype(np.float)
         # Manual contouring (Canny method)
-        k = int(SIZE / 16)
-        img_border = cv2.Canny(img_init.astype(np.uint8), k,k)
-        # Denoising
-        ret, markers = cv2.connectedComponents(np.uint8(img_border))
-        unique, counts = np.unique(markers, return_counts=True)
-        values_out = unique[np.where(counts < np.median(counts))[0]]
-        for v_out in values_out :
-            idx = np.where(markers == v_out)
-            markers[idx] = 0
-        markers[markers > 0] = 1
+        img_border = cv2.Canny(self.IMG[0].astype(np.uint8), 2,2)
         # Find polygons contour (Manual)
-        x,y = np.where(markers != 0)
+        x,y = np.where(img_border != 0)
         self.EUCLID[1] = np.concatenate((x[:,None], y[:,None]), axis = 1)
+        # Define max environment cycle
+        self.CYCLE = (NBR_ACTION + 1)*len(x)
         # Update image observation (Large)
         self.IMG[1] = Update_img(self.IMG[0], [], self.EUCLID[0])
         # Update box observation 
         self.VAR_OUT[0] = Update_box(self.BOX, self.EUCLID[0], self.IMG[1])
         return self.VAR_OUT[0]
     def step(self, action):
-        self.i += 1
+        self.ITER += 1
         # Games rules
         if action != 4 :
             self.VAR_OUT[1] = 0
@@ -169,21 +163,21 @@ class Env():
         # Update box
         self.VAR_OUT[0] = Update_box(self.BOX, self.EUCLID[0], self.IMG[1])
         # Condition stop
-        if self.i > CYCLE_MAX or len(self.EUCLID[1]) == 0 : self.VAR_OUT[2] = True
+        if self.ITER > self.CYCLE or len(self.EUCLID[1]) == 0 : self.VAR_OUT[2] = True
         return self.VAR_OUT
         
 ################################### LEARNING
 def Simulation(observation, dilemna):
     M[0].append(observation)
     # Calculate solution
-    action = Sol(dilemna, M[0])
+    action = Sol(dilemna, observation)
     # Update sample
     observation, reward, done = env.step(action)
     # Update sample
     M[1].append(action), M[2].append(observation), M[3].append(reward), M[4].append(done)
     return observation, done
 
-def Sol(dilemna, obs_list):
+def Sol(dilemna, obs):
     if dilemna == 'exemple' :
         # Euclidean distance between position and polygon vertex
         d = np.linalg.norm(env.EUCLID[0] - env.EUCLID[1], axis=1)
@@ -208,7 +202,7 @@ def Sol(dilemna, obs_list):
         next_action = np.random.choice(5, 1, p=4*[(1-AGGRESSIVITY)/4]+[AGGRESSIVITY])[0]
     else :
         # Passing image in Network
-        output = model_primaire(tf.convert_to_tensor(np.expand_dims(obs_list[-1], axis=0)))
+        output = model_primaire(tf.convert_to_tensor(np.expand_dims(obs, axis=0)))
         # Max values classification
         next_action = int(tf.argmax(output[0], axis=-1))
     return next_action
@@ -315,18 +309,17 @@ def Predict():
     # Resize dimension image
     img_c = cv2.resize(img_original, (SIZE, SIZE))
     # Smooth
-    img_blur = cv2.blur(img_c,SMOOTH).astype(np.uint32)
+    img_batch = cv2.blur(img_c,SMOOTH).astype(np.uint32).reshape(-1,3)
     # Clustering
-    kmean = KMeans(n_clusters=NB_COLOR).fit(img_blur.reshape(-1,3))
+    cluster = AgglomerativeClustering(linkage='ward', n_clusters=NB_COLOR).fit(img_batch)
     # level image
-    img_init = kmean.labels_.reshape(SIZE,SIZE)
+    img_init = cluster.labels_.reshape(SIZE,SIZE)
     # Put image in environment
     env.reset(img_init)
-    observation = env.IMG[1]
     # Memory (action & position)
     M = [[],[]]
-    # Action loop (à adapter)
-    while len(env.EUCLID[1]) > 0 :
+    # Action loop
+    while (len(env.EUCLID[1]) > 0) and not(env.VAR_OUT[2]) :
         M[1].append(env.EUCLID[0].copy())
         if METHODS == 'exemple' :
             action = Sol(METHODS, None)
@@ -337,9 +330,12 @@ def Predict():
                 idx = int(np.where(dst == dst.min())[0][0])
                 if dst.min() == 0 : env.EUCLID[1] = np.delete(env.EUCLID[1], idx,0)
         else :
-            observation = Simulation(observation, 'exploitation')[0]
-            action = M[0][-1]
+            action = Sol(METHODS, env.VAR_OUT[0])
+            env.step(action)
+            # Show cycle
+            if env.ITER % 250 == 0 : print('Predict : ' + str(env.ITER) + "/" + str(env.CYCLE))
         M[0].append(action)
+    print('Prediction Done')
     # Route of model
     return np.array(M[0]), np.array(M[1])
 
@@ -360,7 +356,7 @@ def Animate(route, anim_style = False) :
     # Extract route array
     action, position = route
     # Filter and Reduce nb points
-    position = sp.ndimage.gaussian_filter1d(position, 1, axis=0)
+    position = sp.ndimage.gaussian_filter1d(position, SIGMA, axis=0)
     action, position = action[::PASS_STEP], position[::PASS_STEP]
     # Distance traveled
     dist_xy = np.linalg.norm(position-np.roll(position, -1, axis=0), axis=1)
@@ -374,7 +370,7 @@ def Animate(route, anim_style = False) :
     dist_tri = dist_xy[index][Tri.simplices.min(axis=1)]
     coor_tri = points[Tri.simplices]
     # Mass-center localisation of triangle
-    tri_loc_xy = np.mean(coor_tri, axis=1, dtype=int)
+    tri_loc_xy = np.rint(np.mean(coor_tri, axis=1)).astype(int)
     size_new = tri_loc_xy.max()
     tri_loc_img = tuple(map(tuple, tri_loc_xy.T))
     # Extract color of triangle
@@ -399,7 +395,7 @@ def Animate(route, anim_style = False) :
     ### Style output
     if STYLE == 0 :
         # Create noeud/arete to update
-        tri_style = plt.scatter(tri_loc_xy[:,0], tri_loc_xy[:,1], c = tri_color_anim, s=10)
+        tri_style = plt.scatter(tri_loc_xy[:,0], tri_loc_xy[:,1], c = tri_color_anim, s=DOT)
     elif STYLE == 1 :
         # Triangulation color to update
         tri_style = PolyCollection(coor_tri, lw = 1., edgecolors=tri_color_anim, facecolors=tri_color_anim)
@@ -407,7 +403,7 @@ def Animate(route, anim_style = False) :
     # Line parcours
     line_tracing = ax.plot([],[], color='k')[0]
     def animate(i):
-        t = i*N_STEP ; print(t)
+        t = i*N_STEP ; print('Animation : ' + str(t))
         if len(dist_xy) > t :
             Distance = dist_xy[t]
             # Color scattering change
