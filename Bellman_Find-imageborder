@@ -319,21 +319,13 @@ def Predict():
     # Memory (action & position)
     M = [[],[]]
     # Action loop
-    while (len(env.EUCLID[1]) > 0) and not(env.VAR_OUT[2]) :
+    while not(env.VAR_OUT[2]) :
         M[1].append(env.EUCLID[0].copy())
-        if METHODS == 'exemple' :
-            action = Sol(METHODS, None)
-            # Update environment
-            env.EUCLID[0] = Update_pos(env.EUCLID[0], action)
-            if action == 4 : 
-                dst = np.linalg.norm(env.EUCLID[0] - env.EUCLID[1], axis=1)
-                idx = int(np.where(dst == dst.min())[0][0])
-                if dst.min() == 0 : env.EUCLID[1] = np.delete(env.EUCLID[1], idx,0)
-        else :
-            action = Sol(METHODS, env.VAR_OUT[0])
-            env.step(action)
-            # Show cycle
-            if env.ITER % 250 == 0 : print('Predict : ' + str(env.ITER) + "/" + str(env.CYCLE))
+        # Apply solution
+        action = Sol(METHODS, env.VAR_OUT[0])
+        env.step(action)
+        # Show cycle
+        if env.ITER % 250 == 0 : print('Predict : ' + str(env.ITER) + "/" + str(env.CYCLE))
         M[0].append(action)
     print('Prediction Done')
     # Route of model
