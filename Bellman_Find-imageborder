@@ -9,7 +9,8 @@ from tensorflow.keras import models, layers
 import cv2, os, skvideo.io, scipy as sp
 import matplotlib.animation as animation
 from matplotlib.collections import PolyCollection
-from sklearn.cluster import KMeans, AgglomerativeClustering
+from sklearn import preprocessing
+from sklearn.cluster import KMeans, Birch
 from shapely.geometry import Polygon, MultiPolygon
 from shapely.ops import cascaded_union
 
@@ -24,8 +25,8 @@ UPDATE_WEIGHT = 100 # primary to target
 NBR_VERTEX = 4
 NB_POLY = 2
 # Image
-SIZE, BOX = 128, 7
-NB_COLOR = 8 # 8 (low poly) to 64 (pointillism)
+SIZE, BOX = 512, 7
+NB_COLOR = 16 # 8 (low poly) to 64 (pointillism)
 # Dilemna
 EPSILON_START, EPSILON_END = 1., 0.1
 DECAY_RATE = 0.015
@@ -38,15 +39,16 @@ AGGRESSIVITY = 1./10 # action 5 randomness
 # Predict
 FILENAME = "1_portrait.png"
 METHODS = 'exemple' # exemple or exploitation
-SMOOTH = (5,5)
+SMOOTH = (3,3)
 # Animation
 SIGMA, PASS_STEP = 0.1, 1
 NB_CLUSTER = 2
 ALPHA = 1.
-N_STEP, N_LINE, END_FRAME = 100, 10, 20
+N_STEP, N_LINE, END_FRAME = int(SIZE/2), int(SIZE/10), int(SIZE/5)
 ANIM = True
-STYLE = 0 # 0 = Pointillism, 1 = Low Poly
+STYLE = 1 # 0 = Pointillism, 1 = Low Poly
 DOT = 30 # For pointillism
+LW = .5 # For Low Poly
 
 ################################### GEOMETRIC
 # Counterclockwise sorting
@@ -121,11 +123,11 @@ class Env():
         self.EUCLID[0] = np.random.randint(0,SIZE, (2))
         if img_init is None:
             # Image initialisation (BG = 1)
-            img = np.ones((SIZE,SIZE), np.uint8)
-		    # Polygone generator (sorted)
+            img = np.random.randint(0, NB_COLOR)*np.ones((SIZE,SIZE), np.uint8)
+	    # Polygone generator (sorted)
             for i in range(NB_POLY) :
                 p = ccw_sort(np.random.randint(1, SIZE-1, (NBR_VERTEX,2)))
-                c = np.random.randint(2, NB_COLOR)
+                c = np.random.randint(0, NB_COLOR)
                 self.IMG[0] = np.swapaxes(cv2.drawContours(img, [p], -1, c, -1), 0,1)
         else :
             self.IMG[0] = img_init.astype(np.float)
@@ -135,7 +137,7 @@ class Env():
         x,y = np.where(img_border != 0)
         self.EUCLID[1] = np.concatenate((x[:,None], y[:,None]), axis = 1)
         # Define max environment cycle
-        self.CYCLE = (NBR_ACTION + 1)*len(x)
+        self.CYCLE = (NBR_ACTION)*len(x)
         # Update image observation (Large)
         self.IMG[1] = Update_img(self.IMG[0], [], self.EUCLID[0])
         # Update box observation 
@@ -308,10 +310,13 @@ def Predict():
     img_original = cv2.imread(os.getcwd() + os.path.sep + FILENAME)
     # Resize dimension image
     img_c = cv2.resize(img_original, (SIZE, SIZE))
-    # Smooth
+    # Smooth and linearize
     img_batch = cv2.blur(img_c,SMOOTH).astype(np.uint32).reshape(-1,3)
-    # Clustering
-    cluster = AgglomerativeClustering(linkage='ward', n_clusters=NB_COLOR).fit(img_batch)
+    # Normalize
+    min_max_scaler = preprocessing.MinMaxScaler()
+    X = min_max_scaler.fit_transform(img_batch)
+    # Clustering (find max color number)
+    cluster = Birch(n_clusters = NB_COLOR, threshold=X.std()/np.pi).fit(X)
     # level image
     img_init = cluster.labels_.reshape(SIZE,SIZE)
     # Put image in environment
@@ -325,7 +330,7 @@ def Predict():
         action = Sol(METHODS, env.VAR_OUT[0])
         env.step(action)
         # Show cycle
-        if env.ITER % 250 == 0 : print('Predict : ' + str(env.ITER) + "/" + str(env.CYCLE))
+        if env.ITER % N_STEP == 0 : print('Predict : ' + str(env.ITER) + "/" + str(env.CYCLE))
         M[0].append(action)
     print('Prediction Done')
     # Route of model
@@ -390,7 +395,7 @@ def Animate(route, anim_style = False) :
         tri_style = plt.scatter(tri_loc_xy[:,0], tri_loc_xy[:,1], c = tri_color_anim, s=DOT)
     elif STYLE == 1 :
         # Triangulation color to update
-        tri_style = PolyCollection(coor_tri, lw = 1., edgecolors=tri_color_anim, facecolors=tri_color_anim)
+        tri_style = PolyCollection(coor_tri, lw = LW, edgecolors=tri_color_anim, facecolors=tri_color_anim)
         ax.add_collection(tri_style)
     # Line parcours
     line_tracing = ax.plot([],[], color='k')[0]
@@ -445,7 +450,7 @@ def Animate(route, anim_style = False) :
         for p in mp :
             new_coor += [np.array(p.exterior.coords.xy).T]
     # plot all polygon
-    poly = PolyCollection(new_coor, lw = 1., edgecolors=merge_color,facecolors=merge_color)
+    poly = PolyCollection(new_coor, lw = LW, edgecolors='k',facecolors=merge_color)
     ax.add_collection(poly)
     # save in vectorial format
     plt.savefig("2_portrait.svg")
