@@ -40,12 +40,14 @@ AGGRESSIVITY = 1./10 # action 5 randomness
 FILENAME = "1_portrait.png"
 METHODS = 'exemple' # exemple or exploitation
 SMOOTH = (3,3)
+SKIP_PREDICT = True
+
 # Animation
 SIGMA, PASS_STEP = 0.1, 1
 NB_CLUSTER = 2
 ALPHA = 1.
 N_STEP, N_LINE, END_FRAME = int(SIZE/2), int(SIZE/10), int(SIZE/5)
-ANIM = True
+ANIM = False
 STYLE = 1 # 0 = Pointillism, 1 = Low Poly
 DOT = 30 # For pointillism
 LW = .5 # For Low Poly
@@ -124,7 +126,7 @@ class Env():
         if img_init is None:
             # Image initialisation (BG = 1)
             img = np.random.randint(0, NB_COLOR)*np.ones((SIZE,SIZE), np.uint8)
-	    # Polygone generator (sorted)
+		    # Polygone generator (sorted)
             for i in range(NB_POLY) :
                 p = ccw_sort(np.random.randint(1, SIZE-1, (NBR_VERTEX,2)))
                 c = np.random.randint(0, NB_COLOR)
@@ -323,6 +325,9 @@ def Predict():
     env.reset(img_init)
     # Memory (action & position)
     M = [[],[]]
+    # Skip prediction
+    if SKIP_PREDICT : 
+        return env.EUCLID[1].copy(), 4*np.ones(len(env.EUCLID[1]))
     # Action loop
     while not(env.VAR_OUT[2]) :
         M[1].append(env.EUCLID[0].copy())
