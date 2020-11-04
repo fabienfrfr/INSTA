@@ -1,1 +1,49 @@
+Brouillon de notes :
 
+Définition système complexe, du chaos et du vyvant
+
+### Morphogénèse (Turing)
+# Diffusion (macroscopique)
+# Reaction chimique (macroscopique)
+# Qu'est ce qu'une forme ?
+# Resolution analytique diffusion
+# Resolution matricielle diffusion
+# Resolution spectrale diffusion (convolution)
+# Resolution equation différentielle par différence fini
+# Reaction-diffusion par automate cellulaire (multi-echelle)
+# Reseau de Bravais
+# Calcul de distance (euclidienne)
+# Diagramme de Voronoi
+
+### Mouvement collectif (Vicsek)
+# Diffusion par collision (microscopique)
+# Auto-propulsion de particule
+# Qu'est ce qu'une force ?
+# Equation cartezienne
+# Symetrie axiale (pythagore + thales)
+# Resolution de systeme d'equation non lineaire
+# Nombre complexe (forme polaire)
+# Diagramme de phase (ligne de champs)
+
+### Fractale (Mandelbrot)
+# Auto-similarité
+# Qu'est ce qu'une distance ?
+# Marche aléatoire
+# Diffusion limité par aggrégation
+# Theorie des graphes/réseaux
+# Classification des données (KNN)
+# Combinaison linéaire (translation+rotation)
+
+### Signaux (Fourier)
+# Qu'est ce qu'un signal ?
+# Décomposition en serie
+# Courbe de bezier
+# Interpolation
+# Intégration (simpson)
+
+### Décision (Bellman)
+# Les chaines de markov
+# Les réseaux de neurones
+# Comment prendre la meilleur décision ?
+# Clustering de donnée (Birch)
+# Géometrie booleene
