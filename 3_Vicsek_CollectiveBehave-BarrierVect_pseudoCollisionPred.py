@@ -50,6 +50,7 @@ false_cells = np.concatenate((X_[:,None],Y_[:,None], Angle_[:,None]), axis=1)
 cell_range = np.arange(N_cells)
 for i in range(N_time-1) :
     # One Predator pseudo-collision
+    # ADD Quadtree Collision for more than ONE !!
     d = np.linalg.norm(cells_state[i,:,:2] - preds[i,:2], axis=1)
     indexes = np.where((d<R_coll))[0]
     if indexes.size == 0 :
