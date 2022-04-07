@@ -17,7 +17,7 @@ import cv2
 from matplotlib import colors
 
 ############################################### PARAMETER
-L, H, N, T = 5, 5, 250, 10 # Largeur, Hauteur
+L, H, N, T = 5, 5, 20, 10 # Largeur, Hauteur
 dx, dy = L/(N+1), H/(N+1) 
 e_, dt = 0.001, 0.25
 
