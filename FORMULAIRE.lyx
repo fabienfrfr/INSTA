@@ -508,6 +508,69 @@ F(\pi_{1},\pi_{2},\ldots,\pi_{p})=0\\
 \end_layout
 
 \begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# solver method
+\end_layout
+
+\begin_layout Plain Layout
+pi = sympy.solve(Symbol(
+\color red
+'x'
+\color inherit
+)**2-1, Symbol(
+\color red
+'x'
+\color inherit
+))
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# numeric method
+\end_layout
+
+\begin_layout Plain Layout
+g = 
+\color olive
+lambda
+\color inherit
+ x : (x^a)*(x^b)
+\end_layout
+
+\begin_layout Plain Layout
+pi = scipy.fsolve(g,[
+\color gray
+i,1
+\color inherit
+])
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
 \align center
 \begin_inset CommandInset line
 LatexCommand rule
@@ -552,6 +615,43 @@ Solution vectorielle :
 \mathbf{v}'_{2} & =\mathbf{v}_{2}-\frac{2m_{1}}{m_{1}+m_{2}}\ \frac{\langle\mathbf{v}_{2}-\mathbf{v}_{1},\,\mathbf{x}_{2}-\mathbf{x}_{1}\rangle}{\|\mathbf{x}_{2}-\mathbf{x}_{1}\|^{2}}\ (\mathbf{x}_{2}-\mathbf{x}_{1})
 \end{align}
 \]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# consevation law
+\end_layout
+
+\begin_layout Plain Layout
+d = np.linalg.norm(ri - rj)**2
+\end_layout
+
+\begin_layout Plain Layout
+ui = vi - 2*mj / M * np.dot(vi-vj, ri-rj) / d * (ri - rj)
+\end_layout
 
 \end_inset
 
@@ -610,6 +710,49 @@ Champes de force local (Vicsek) :
 \end{pmatrix}
 \end{align}
 \]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# field perturbation (euler method)
+\end_layout
+
+\begin_layout Plain Layout
+v[0] += dt*(lambda x,y : (x*y, 9.81 + x+y))
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# local field (complex)
+\end_layout
+
+\begin_layout Plain Layout
+U = v[0]+1j*v[1]; d = np.absolute(u - U)
+\end_layout
 
 \end_inset
 
@@ -677,6 +820,47 @@ Diffusion locale avec réactif (Turing) :
 \[
 c(t+1,x_{i})=sign\left[h+\sum_{k}D_{k}\sum_{r<R_{k}}c(t,x_{j})\right]
 \]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# local diffusion
+\end_layout
+
+\begin_layout Plain Layout
+d = np.linalg.norm(X - X[i], axis=1)
+\end_layout
+
+\begin_layout Plain Layout
+c_i += d*np.sum(C[d<r])
+\end_layout
+
+\begin_layout Plain Layout
+new_C[c] = np.sign(h+c_i)
+\end_layout
 
 \end_inset
 
@@ -777,6 +961,48 @@ Résolution dans l'espace propre du systeme :
 \end_layout
 
 \begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# local and global laplacian
+\end_layout
+
+\begin_layout Plain Layout
+LAP = signal.convolve2d(U, kernel, boundary='symm', mode='same')
+\end_layout
+
+\begin_layout Plain Layout
+M = spdiags(main,[0],N*M,N*M) + spdiags(upper,[1],N*M,N*M)+spdiags(lower,[-1],N*
+M,N*M)
+\end_layout
+
+\begin_layout Plain Layout
+LAP = (new_U-U_).reshape(LAP)
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
 
 \series bold
 Cinétique chimique de 
@@ -850,6 +1076,43 @@ Marche aléatoire (Chaine de Markov) :
 \end_layout
 
 \begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# new position of walker with continum noise
+\end_layout
+
+\begin_layout Plain Layout
+WAY = 2*np.pi*(np.random.randint(0,4,N_WALKER)/4.) 
+\end_layout
+
+\begin_layout Plain Layout
+VAR = delta*(np.random.random(WALKER_NUMBER) - 0.5)
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
 
 \series bold
 Force electromagnétique :
@@ -894,6 +1157,43 @@ a^{D_{h}}~;~D_{h}=\frac{\ln(N)}{\ln(\frac{1}{r})}
 \[
 C(r)\equiv N^{-1}\sum_{r'}\rho(r')\rho(r'+r)
 \]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# calculate distance for each node
+\end_layout
+
+\begin_layout Plain Layout
+G = nx.from_pandas_dataframe(tree, 'min_dist_index', 'initial_index') 
+\end_layout
+
+\begin_layout Plain Layout
+SHORT_PATH = nx.shortest_path(G)
+\end_layout
 
 \end_inset
 
@@ -965,6 +1265,39 @@ Double pendule (Espace des phases
 \end_layout
 
 \begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# differential equation solver method
+\end_layout
+
+\begin_layout Plain Layout
+res = integrate.odeint(derivs, state, t)
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
 \align center
 \begin_inset CommandInset line
 LatexCommand rule
@@ -1011,18 +1344,6 @@ y(t)=\int_{-\infty}^{\infty}h(t-\tau)u(\tau)d\tau=\int_{-\infty}^{\infty}h(\tau)
 \end_layout
 
 \begin_layout Standard
--
-\begin_inset Newline newline
-\end_inset
-
-
-\begin_inset Newline newline
-\end_inset
-
-
-\end_layout
-
-\begin_layout Standard
 
 \series bold
 Transformations en Z :
@@ -1033,6 +1354,47 @@ Transformations en Z :
 \[
 H[z]=\frac{Y[z]}{X[z]}=\frac{1-z^{-1}}{T_{e}}
 \]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# transfert signal
+\end_layout
+
+\begin_layout Plain Layout
+H = scipy.signal.firwin()
+\end_layout
+
+\begin_layout Plain Layout
+freq = scipy.signal.freqz(b,a)
+\end_layout
+
+\begin_layout Plain Layout
+conv = scipy.signal.convolve()
+\end_layout
 
 \end_inset
 
@@ -1084,6 +1446,50 @@ Harmonique d'un signal :
 \[
 c_{n}(f)=\frac{1}{T}\int_{T}f(t){\rm e}^{-{\rm i}2\pi\tfrac{n}{T}t}\mathrm{d}t
 \]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# integration method
+\end_layout
+
+\begin_layout Plain Layout
+cf += [[simps(X[1]*np.exp(-1j*2*n*np.pi*X[0]/T)/T, X[0]), simps(X[2]*np.exp(-1j*2*n
+*np.pi*X[0]/T)/T, X[0])]]
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# direct method
+\end_layout
+
+\begin_layout Plain Layout
+freq = np.fftfreq(x.size, d=1/rate)
+\end_layout
 
 \end_inset
 
@@ -1164,6 +1570,39 @@ Commande linéaire quadratique :
 \end_layout
 
 \begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# control
+\end_layout
+
+\begin_layout Plain Layout
+PID = x
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
 \align center
 \begin_inset CommandInset line
 LatexCommand rule
@@ -1220,6 +1659,51 @@ Equation de Bellman :
 \[
 Q^{*}(s,a)=\sum_{s'\in S}[R(s,a,s')+\gamma\max_{a'\in A}Q^{*}(s',a')]T(s,a,s')
 \]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+\begin_inset Flex Color Box
+status open
+
+\begin_layout Plain Layout
+\begin_inset Argument 1
+status open
+
+\begin_layout Plain Layout
+breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
+ colframe=cellborder
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# update Q(s,a)
+\end_layout
+
+\begin_layout Plain Layout
+max_future_q = np.max(q_table[new_discrete_state]) 
+\end_layout
+
+\begin_layout Plain Layout
+current_q = q_table[discrete_state][action]
+\end_layout
+
+\begin_layout Plain Layout
+new_q = (1-alpha)*current_q+alpha*(reward+gamma*max_future_q)
+\end_layout
+
+\begin_layout Plain Layout
+q_table[discrete_state][action]=new_q
+\end_layout
 
 \end_inset
 
