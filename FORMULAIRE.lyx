@@ -508,6 +508,23 @@ F(\pi_{1},\pi_{2},\ldots,\pi_{p})=0\\
 \end_layout
 
 \begin_layout Standard
+
+\series bold
+Complexité algorithmique :
+\end_layout
+
+\begin_layout Standard
+\begin_inset Formula 
+\[
+O(1)<O(log(n))<O(n)<O(n^{i})<O(2^{n})<O(n!)
+\]
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
 \begin_inset Flex Color Box
 status open
 
@@ -563,6 +580,24 @@ pi = scipy.fsolve(g,[
 i,1
 \color inherit
 ])
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# numeric method
+\end_layout
+
+\begin_layout Plain Layout
+
+\color olive
+try
+\color inherit
+ : x 
+\color olive
+except
+\color inherit
+ e : y
 \end_layout
 
 \end_inset
@@ -1280,6 +1315,20 @@ breakable, size=fbox, boxrule=1pt, pad at break*=1mm,colback=cellbackground,
 \end_inset
 
 
+\end_layout
+
+\begin_layout Plain Layout
+
+\color teal
+# regex exemple
+\end_layout
+
+\begin_layout Plain Layout
+txt = "The rain in Spain" 
+\end_layout
+
+\begin_layout Plain Layout
+x = re.search("^The.*Spain$", txt)
 \end_layout
 
 \begin_layout Plain Layout
