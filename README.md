@@ -6,6 +6,9 @@ https://www.instagram.com/fabienfrfr/
 
 Not optimised, don't hesitate to comment !
 
+Documentation :  [here](COMPLEX_SYSTEM_NOTEBOOK.ipynb)
+
+
 ##
 
 Use with Gimp, Inkscape and Blender.
